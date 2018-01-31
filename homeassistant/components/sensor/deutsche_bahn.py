@@ -14,7 +14,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 import homeassistant.util.dt as dt_util
 
-REQUIREMENTS = ['schiene==0.19']
+REQUIREMENTS = ['schiene==0.20']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,15 +67,17 @@ class DeutscheBahnSensor(Entity):
     def device_state_attributes(self):
         """Return the state attributes."""
         connections = self.data.connections[0]
-        connections['next'] = self.data.connections[1]['departure']
-        connections['next_on'] = self.data.connections[2]['departure']
+        if len(self.data.connections) > 1:
+            connections['next'] = self.data.connections[1]['departure']
+        if len(self.data.connections) > 2:
+            connections['next_on'] = self.data.connections[2]['departure']
         return connections
 
     def update(self):
         """Get the latest delay from bahn.de and updates the state."""
         self.data.update()
         self._state = self.data.connections[0].get('departure', 'Unknown')
-        if self.data.connections[0]['delay'] != 0:
+        if self.data.connections[0].get('delay', 0) != 0:
             self._state += " + {}".format(self.data.connections[0]['delay'])
 
 
@@ -95,6 +97,9 @@ class SchieneData(object):
         """Update the connection data."""
         self.connections = self.schiene.connections(
             self.start, self.goal, dt_util.as_local(dt_util.utcnow()))
+
+        if not self.connections:
+            self.connections = [{}]
 
         for con in self.connections:
             # Detail info is not useful. Having a more consistent interface
