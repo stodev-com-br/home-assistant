@@ -411,7 +411,7 @@ class TodoistProjectData(object):
 
         The "best" event is determined by the following criteria:
           * A proposed event must not be completed
-          * A proposed event must have a end date (otherwise we go with
+          * A proposed event must have an end date (otherwise we go with
             the event at index 0, selected above)
           * A proposed event must be on the same day or earlier as our
             current event
@@ -496,9 +496,13 @@ class TodoistProjectData(object):
             # We had no valid tasks
             return True
 
+        # Make sure the task collection is reset to prevent an
+        # infinite collection repeating the same tasks
+        self.all_project_tasks.clear()
+
         # Organize the best tasks (so users can see all the tasks
         # they have, organized)
-        while len(project_tasks) > 0:
+        while project_tasks:
             best_task = self.select_best_task(project_tasks)
             _LOGGER.debug("Found Todoist Task: %s", best_task[SUMMARY])
             project_tasks.remove(best_task)
