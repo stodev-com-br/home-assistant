@@ -6,9 +6,8 @@ https://home-assistant.io/components/sensor.deconz/
 """
 from homeassistant.components.deconz import (
     DOMAIN as DATA_DECONZ, DATA_DECONZ_ID)
-from homeassistant.const import (
-    ATTR_BATTERY_LEVEL, ATTR_VOLTAGE, CONF_EVENT, CONF_ID)
-from homeassistant.core import EventOrigin, callback
+from homeassistant.const import ATTR_BATTERY_LEVEL, ATTR_VOLTAGE
+from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.icon import icon_for_battery_level
 from homeassistant.util import slugify
@@ -22,10 +21,12 @@ ATTR_EVENT_ID = 'event_id'
 
 async def async_setup_platform(hass, config, async_add_devices,
                                discovery_info=None):
-    """Set up the deCONZ sensors."""
-    if discovery_info is None:
-        return
+    """Old way of setting up deCONZ sensors."""
+    pass
 
+
+async def async_setup_entry(hass, config_entry, async_add_devices):
+    """Set up the deCONZ sensors."""
     from pydeconz.sensor import DECONZ_SENSOR, SWITCH as DECONZ_REMOTE
     sensors = hass.data[DATA_DECONZ].sensors
     entities = []
@@ -33,7 +34,6 @@ async def async_setup_platform(hass, config, async_add_devices,
     for sensor in sensors.values():
         if sensor and sensor.type in DECONZ_SENSOR:
             if sensor.type in DECONZ_REMOTE:
-                DeconzEvent(hass, sensor)
                 if sensor.battery:
                     entities.append(DeconzBattery(sensor))
             else:
@@ -182,26 +182,3 @@ class DeconzBattery(Entity):
             ATTR_EVENT_ID: slugify(self._device.name),
         }
         return attr
-
-
-class DeconzEvent(object):
-    """When you want signals instead of entities.
-
-    Stateless sensors such as remotes are expected to generate an event
-    instead of a sensor entity in hass.
-    """
-
-    def __init__(self, hass, device):
-        """Register callback that will be used for signals."""
-        self._hass = hass
-        self._device = device
-        self._device.register_async_callback(self.async_update_callback)
-        self._event = 'deconz_{}'.format(CONF_EVENT)
-        self._id = slugify(self._device.name)
-
-    @callback
-    def async_update_callback(self, reason):
-        """Fire the event if reason is that state is updated."""
-        if reason['state']:
-            data = {CONF_ID: self._id, CONF_EVENT: self._device.state}
-            self._hass.bus.async_fire(self._event, data, EventOrigin.remote)

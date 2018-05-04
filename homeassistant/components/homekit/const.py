@@ -18,9 +18,10 @@ DEFAULT_PORT = 51827
 SERVICE_HOMEKIT_START = 'start'
 
 # #### STRING CONSTANTS ####
-BRIDGE_MODEL = 'homekit.bridge'
-BRIDGE_NAME = 'Home Assistant'
-MANUFACTURER = 'HomeAssistant'
+BRIDGE_MODEL = 'Bridge'
+BRIDGE_NAME = 'Home Assistant Bridge'
+BRIDGE_SERIAL_NUMBER = 'homekit.bridge'
+MANUFACTURER = 'Home Assistant'
 
 # #### Categories ####
 CATEGORY_ALARM_SYSTEM = 'ALARM_SYSTEM'
@@ -74,6 +75,7 @@ CHAR_CURRENT_POSITION = 'CurrentPosition'  # Int | [0, 100]
 CHAR_CURRENT_HUMIDITY = 'CurrentRelativeHumidity'  # percent
 CHAR_CURRENT_SECURITY_STATE = 'SecuritySystemCurrentState'
 CHAR_CURRENT_TEMPERATURE = 'CurrentTemperature'
+CHAR_FIRMWARE_REVISION = 'FirmwareRevision'
 CHAR_HEATING_THRESHOLD_TEMPERATURE = 'HeatingThresholdTemperature'
 CHAR_HUE = 'Hue'  # arcdegress | [0, 360]
 CHAR_LEAK_DETECTED = 'LeakDetected'
@@ -102,6 +104,8 @@ PROP_CELSIUS = {'minValue': -273, 'maxValue': 999}
 
 # #### Device Class ####
 DEVICE_CLASS_CO2 = 'co2'
+DEVICE_CLASS_DOOR = 'door'
+DEVICE_CLASS_GARAGE_DOOR = 'garage_door'
 DEVICE_CLASS_GAS = 'gas'
 DEVICE_CLASS_HUMIDITY = 'humidity'
 DEVICE_CLASS_LIGHT = 'light'
@@ -112,3 +116,4 @@ DEVICE_CLASS_OPENING = 'opening'
 DEVICE_CLASS_PM25 = 'pm25'
 DEVICE_CLASS_SMOKE = 'smoke'
 DEVICE_CLASS_TEMPERATURE = 'temperature'
+DEVICE_CLASS_WINDOW = 'window'
