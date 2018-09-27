@@ -14,7 +14,7 @@ from homeassistant.const import (
     ATTR_ENTITY_ID, CONF_ICON, CONF_NAME, STATE_CLOSED, STATE_HOME,
     STATE_NOT_HOME, STATE_OFF, STATE_ON, STATE_OPEN, STATE_LOCKED,
     STATE_UNLOCKED, STATE_OK, STATE_PROBLEM, STATE_UNKNOWN,
-    ATTR_ASSUMED_STATE, SERVICE_RELOAD)
+    ATTR_ASSUMED_STATE, SERVICE_RELOAD, ATTR_NAME, ATTR_ICON)
 from homeassistant.core import callback
 from homeassistant.loader import bind_hass
 from homeassistant.helpers.entity import Entity, async_generate_entity_id
@@ -35,8 +35,6 @@ ATTR_ADD_ENTITIES = 'add_entities'
 ATTR_AUTO = 'auto'
 ATTR_CONTROL = 'control'
 ATTR_ENTITIES = 'entities'
-ATTR_ICON = 'icon'
-ATTR_NAME = 'name'
 ATTR_OBJECT_ID = 'object_id'
 ATTR_ORDER = 'order'
 ATTR_VIEW = 'view'
@@ -133,13 +131,6 @@ def reload(hass):
 def async_reload(hass):
     """Reload the automation from config."""
     hass.async_add_job(hass.services.async_call(DOMAIN, SERVICE_RELOAD))
-
-
-@bind_hass
-def set_visibility(hass, entity_id=None, visible=True):
-    """Hide or shows a group."""
-    data = {ATTR_ENTITY_ID: entity_id, ATTR_VISIBLE: visible}
-    hass.services.call(DOMAIN, SERVICE_SET_VISIBILITY, data)
 
 
 @bind_hass
@@ -552,12 +543,12 @@ class Group(Entity):
         self._async_update_group_state()
 
     async def async_added_to_hass(self):
-        """Callback when added to HASS."""
+        """Handle addition to HASS."""
         if self.tracking:
             self.async_start()
 
     async def async_will_remove_from_hass(self):
-        """Callback when removed from HASS."""
+        """Handle removal from HASS."""
         if self._async_unsub_state_changed:
             self._async_unsub_state_changed()
             self._async_unsub_state_changed = None
