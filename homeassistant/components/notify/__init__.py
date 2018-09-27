@@ -12,7 +12,6 @@ import voluptuous as vol
 
 from homeassistant.setup import async_prepare_setup_platform
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.loader import bind_hass
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import CONF_NAME, CONF_PLATFORM
 from homeassistant.helpers import config_per_platform, discovery
@@ -48,22 +47,6 @@ NOTIFY_SERVICE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_TARGET): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional(ATTR_DATA): dict,
 })
-
-
-@bind_hass
-def send_message(hass, message, title=None, data=None):
-    """Send a notification message."""
-    info = {
-        ATTR_MESSAGE: message
-    }
-
-    if title is not None:
-        info[ATTR_TITLE] = title
-
-    if data is not None:
-        info[ATTR_DATA] = data
-
-    hass.services.call(DOMAIN, SERVICE_NOTIFY, info)
 
 
 @asyncio.coroutine
@@ -156,6 +139,8 @@ def async_setup(hass, config):
             DOMAIN, platform_name_slug, async_notify_message,
             schema=NOTIFY_SERVICE_SCHEMA)
 
+        hass.config.components.add('{}.{}'.format(DOMAIN, p_type))
+
         return True
 
     setup_tasks = [async_setup_platform(p_type, p_config) for p_type, p_config
@@ -174,7 +159,7 @@ def async_setup(hass, config):
     return True
 
 
-class BaseNotificationService(object):
+class BaseNotificationService:
     """An abstract class for notification services."""
 
     hass = None
