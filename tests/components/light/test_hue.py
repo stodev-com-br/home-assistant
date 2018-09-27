@@ -182,7 +182,7 @@ def mock_bridge(hass):
 
         if path == 'lights':
             return bridge.mock_light_responses.popleft()
-        elif path == 'groups':
+        if path == 'groups':
             return bridge.mock_group_responses.popleft()
         return None
 
@@ -640,6 +640,19 @@ def test_hs_color():
     light = hue_light.HueLight(
         light=Mock(state={
             'colormode': 'ct',
+            'hue': 1234,
+            'sat': 123,
+        }),
+        request_bridge_update=None,
+        bridge=Mock(),
+        is_group=False,
+    )
+
+    assert light.hs_color is None
+
+    light = hue_light.HueLight(
+        light=Mock(state={
+            'colormode': 'hs',
             'hue': 1234,
             'sat': 123,
         }),
