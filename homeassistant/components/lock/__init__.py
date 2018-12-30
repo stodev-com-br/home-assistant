@@ -4,7 +4,6 @@ Component to interface with various locks that can be controlled remotely.
 For more details about this component, please refer to the documentation
 at https://home-assistant.io/components/lock/
 """
-import asyncio
 from datetime import timedelta
 import functools as ft
 import logging
@@ -35,7 +34,7 @@ GROUP_NAME_ALL_LOCKS = 'all locks'
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
 LOCK_SERVICE_SCHEMA = vol.Schema({
-    vol.Optional(ATTR_ENTITY_ID): cv.entity_ids,
+    vol.Optional(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Optional(ATTR_CODE): cv.string,
 })
 
@@ -57,13 +56,12 @@ def is_locked(hass, entity_id=None):
     return hass.states.is_state(entity_id, STATE_LOCKED)
 
 
-@asyncio.coroutine
-def async_setup(hass, config):
+async def async_setup(hass, config):
     """Track states and offer events for locks."""
-    component = EntityComponent(
+    component = hass.data[DOMAIN] = EntityComponent(
         _LOGGER, DOMAIN, hass, SCAN_INTERVAL, GROUP_NAME_ALL_LOCKS)
 
-    yield from component.async_setup(config)
+    await component.async_setup(config)
 
     component.async_register_entity_service(
         SERVICE_UNLOCK, LOCK_SERVICE_SCHEMA,
@@ -79,6 +77,11 @@ def async_setup(hass, config):
     )
 
     return True
+
+
+async def async_setup_entry(hass, entry):
+    """Set up a config entry."""
+    return await hass.data[DOMAIN].async_setup_entry(entry)
 
 
 class LockDevice(Entity):

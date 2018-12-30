@@ -4,7 +4,6 @@ Provides functionality to interact with fans.
 For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/fan/
 """
-import asyncio
 from datetime import timedelta
 import functools as ft
 import logging
@@ -62,30 +61,30 @@ PROP_TO_ATTR = {
 }  # type: dict
 
 FAN_SET_SPEED_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Required(ATTR_SPEED): cv.string
 })  # type: dict
 
 FAN_TURN_ON_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Optional(ATTR_SPEED): cv.string
 })  # type: dict
 
 FAN_TURN_OFF_SCHEMA = vol.Schema({
-    vol.Optional(ATTR_ENTITY_ID): cv.entity_ids
+    vol.Optional(ATTR_ENTITY_ID): cv.comp_entity_ids
 })  # type: dict
 
 FAN_OSCILLATE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Required(ATTR_OSCILLATING): cv.boolean
 })  # type: dict
 
 FAN_TOGGLE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_ids
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids
 })
 
 FAN_SET_DIRECTION_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Optional(ATTR_DIRECTION): cv.string
 })  # type: dict
 
@@ -98,13 +97,12 @@ def is_on(hass, entity_id: str = None) -> bool:
     return state.attributes[ATTR_SPEED] not in [SPEED_OFF, STATE_UNKNOWN]
 
 
-@asyncio.coroutine
-def async_setup(hass, config: dict):
+async def async_setup(hass, config: dict):
     """Expose fan control via statemachine and services."""
-    component = EntityComponent(
+    component = hass.data[DOMAIN] = EntityComponent(
         _LOGGER, DOMAIN, hass, SCAN_INTERVAL, GROUP_NAME_ALL_FANS)
 
-    yield from component.async_setup(config)
+    await component.async_setup(config)
 
     component.async_register_entity_service(
         SERVICE_TURN_ON, FAN_TURN_ON_SCHEMA,
@@ -132,6 +130,16 @@ def async_setup(hass, config: dict):
     )
 
     return True
+
+
+async def async_setup_entry(hass, entry):
+    """Set up a config entry."""
+    return await hass.data[DOMAIN].async_setup_entry(entry)
+
+
+async def async_unload_entry(hass, entry):
+    """Unload a config entry."""
+    return await hass.data[DOMAIN].async_unload_entry(entry)
 
 
 class FanEntity(ToggleEntity):

@@ -10,24 +10,14 @@ import logging
 
 from datetime import timedelta
 import aiohttp
-import voluptuous as vol
 
-import homeassistant.helpers.config_validation as cv
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP, CONF_ACCESS_TOKEN
+from homeassistant.components.tibber import DOMAIN as TIBBER_DOMAIN
 from homeassistant.exceptions import PlatformNotReady
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import Entity
 from homeassistant.util import dt as dt_util
 from homeassistant.util import Throttle
 
-REQUIREMENTS = ['pyTibber==0.6.0']
-
 _LOGGER = logging.getLogger(__name__)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_ACCESS_TOKEN): cv.string
-})
 
 ICON = 'mdi:currency-usd'
 ICON_RT = 'mdi:power-plug'
@@ -38,26 +28,28 @@ MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=5)
 async def async_setup_platform(hass, config, async_add_entities,
                                discovery_info=None):
     """Set up the Tibber sensor."""
-    import tibber
-    tibber_connection = tibber.Tibber(config[CONF_ACCESS_TOKEN],
-                                      websession=async_get_clientsession(hass))
+    if discovery_info is None:
+        _LOGGER.error("Tibber sensor configuration has changed."
+                      " Check https://home-assistant.io/components/tibber/")
+        return
 
-    async def _close(*_):
-        await tibber_connection.rt_disconnect()
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _close)
+    tibber_connection = hass.data.get(TIBBER_DOMAIN)
 
-    try:
-        await tibber_connection.update_info()
-        dev = []
-        for home in tibber_connection.get_homes():
+    dev = []
+    for home in tibber_connection.get_homes():
+        try:
             await home.update_info()
-            dev.append(TibberSensorElPrice(home))
-            if home.has_real_time_consumption:
-                dev.append(TibberSensorRT(home))
-    except (asyncio.TimeoutError, aiohttp.ClientError):
-        raise PlatformNotReady()
+        except asyncio.TimeoutError as err:
+            _LOGGER.error("Timeout connecting to Tibber home: %s ", err)
+            raise PlatformNotReady()
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Error connecting to Tibber home: %s ", err)
+            raise PlatformNotReady()
+        dev.append(TibberSensorElPrice(home))
+        if home.has_real_time_consumption:
+            dev.append(TibberSensorRT(home))
 
-    async_add_entities(dev, True)
+    async_add_entities(dev, False)
 
 
 class TibberSensorElPrice(Entity):
@@ -144,6 +136,8 @@ class TibberSensorElPrice(Entity):
         state = None
         max_price = 0
         min_price = 10000
+        sum_price = 0
+        num = 0
         now = dt_util.now()
         for key, price_total in self._tibber_home.price_total.items():
             price_time = dt_util.as_local(dt_util.parse_datetime(key))
@@ -158,8 +152,11 @@ class TibberSensorElPrice(Entity):
             if now.date() == price_time.date():
                 max_price = max(max_price, price_total)
                 min_price = min(min_price, price_total)
+                num += 1
+                sum_price += price_total
         self._state = state
         self._device_state_attributes['max_price'] = max_price
+        self._device_state_attributes['avg_price'] = round(sum_price / num, 3)
         self._device_state_attributes['min_price'] = min_price
         return state is not None
 
@@ -183,10 +180,22 @@ class TibberSensorRT(Entity):
 
     async def _async_callback(self, payload):
         """Handle received data."""
-        data = payload.get('data', {})
-        live_measurement = data.get('liveMeasurement', {})
+        errors = payload.get('errors')
+        if errors:
+            _LOGGER.error(errors[0])
+            return
+        data = payload.get('data')
+        if data is None:
+            return
+        live_measurement = data.get('liveMeasurement')
+        if live_measurement is None:
+            return
         self._state = live_measurement.pop('power', None)
-        self._device_state_attributes = live_measurement
+        for key, value in live_measurement.items():
+            if value is None:
+                continue
+            self._device_state_attributes[key] = value
+
         self.async_schedule_update_ha_state()
 
     @property
