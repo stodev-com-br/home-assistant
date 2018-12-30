@@ -4,7 +4,6 @@ Support for MQTT locks.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/lock.mqtt/
 """
-import asyncio
 import logging
 
 import voluptuous as vol
@@ -17,8 +16,11 @@ from homeassistant.components.mqtt import (
     CONF_QOS, CONF_RETAIN, MqttAvailability, MqttDiscoveryUpdate)
 from homeassistant.const import (
     CONF_NAME, CONF_OPTIMISTIC, CONF_VALUE_TEMPLATE)
-from homeassistant.components import mqtt
+from homeassistant.components import mqtt, lock
+from homeassistant.components.mqtt.discovery import MQTT_DISCOVERY_NEW
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,20 +43,31 @@ PLATFORM_SCHEMA = mqtt.MQTT_RW_PLATFORM_SCHEMA.extend({
 }).extend(mqtt.MQTT_AVAILABILITY_SCHEMA.schema)
 
 
-@asyncio.coroutine
-def async_setup_platform(hass, config, async_add_entities,
-                         discovery_info=None):
-    """Set up the MQTT lock."""
-    if discovery_info is not None:
-        config = PLATFORM_SCHEMA(discovery_info)
+async def async_setup_platform(hass: HomeAssistantType, config: ConfigType,
+                               async_add_entities, discovery_info=None):
+    """Set up MQTT lock panel through configuration.yaml."""
+    await _async_setup_entity(hass, config, async_add_entities)
 
+
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up MQTT lock dynamically through MQTT discovery."""
+    async def async_discover(discovery_payload):
+        """Discover and add an MQTT lock."""
+        config = PLATFORM_SCHEMA(discovery_payload)
+        await _async_setup_entity(hass, config, async_add_entities,
+                                  discovery_payload[ATTR_DISCOVERY_HASH])
+
+    async_dispatcher_connect(
+        hass, MQTT_DISCOVERY_NEW.format(lock.DOMAIN, 'mqtt'),
+        async_discover)
+
+
+async def _async_setup_entity(hass, config, async_add_entities,
+                              discovery_hash=None):
+    """Set up the MQTT Lock platform."""
     value_template = config.get(CONF_VALUE_TEMPLATE)
     if value_template is not None:
         value_template.hass = hass
-
-    discovery_hash = None
-    if discovery_info is not None and ATTR_DISCOVERY_HASH in discovery_info:
-        discovery_hash = discovery_info[ATTR_DISCOVERY_HASH]
 
     async_add_entities([MqttLock(
         config.get(CONF_NAME),
@@ -96,11 +109,9 @@ class MqttLock(MqttAvailability, MqttDiscoveryUpdate, LockDevice):
         self._template = value_template
         self._discovery_hash = discovery_hash
 
-    @asyncio.coroutine
-    def async_added_to_hass(self):
+    async def async_added_to_hass(self):
         """Subscribe to MQTT events."""
-        yield from MqttAvailability.async_added_to_hass(self)
-        yield from MqttDiscoveryUpdate.async_added_to_hass(self)
+        await super().async_added_to_hass()
 
         @callback
         def message_received(topic, payload, qos):
@@ -119,7 +130,7 @@ class MqttLock(MqttAvailability, MqttDiscoveryUpdate, LockDevice):
             # Force into optimistic mode.
             self._optimistic = True
         else:
-            yield from mqtt.async_subscribe(
+            await mqtt.async_subscribe(
                 self.hass, self._state_topic, message_received, self._qos)
 
     @property
@@ -142,8 +153,7 @@ class MqttLock(MqttAvailability, MqttDiscoveryUpdate, LockDevice):
         """Return true if we do optimistic updates."""
         return self._optimistic
 
-    @asyncio.coroutine
-    def async_lock(self, **kwargs):
+    async def async_lock(self, **kwargs):
         """Lock the device.
 
         This method is a coroutine.
@@ -156,8 +166,7 @@ class MqttLock(MqttAvailability, MqttDiscoveryUpdate, LockDevice):
             self._state = True
             self.async_schedule_update_ha_state()
 
-    @asyncio.coroutine
-    def async_unlock(self, **kwargs):
+    async def async_unlock(self, **kwargs):
         """Unlock the device.
 
         This method is a coroutine.

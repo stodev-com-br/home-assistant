@@ -4,7 +4,6 @@ Support for Wink hubs.
 For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/wink/
 """
-import asyncio
 from datetime import timedelta
 import json
 import logging
@@ -178,7 +177,7 @@ DIAL_STATE_SCHEMA = vol.Schema({
 
 WINK_COMPONENTS = [
     'binary_sensor', 'sensor', 'light', 'switch', 'lock', 'cover', 'climate',
-    'fan', 'alarm_control_panel', 'scene'
+    'fan', 'alarm_control_panel', 'scene', 'water_heater'
 ]
 
 WINK_HUBS = []
@@ -689,6 +688,15 @@ class WinkDevice(Entity):
         return self.wink.name()
 
     @property
+    def unique_id(self):
+        """Return the unique id of the Wink device."""
+        if hasattr(self.wink, 'capability') and \
+                self.wink.capability() is not None:
+            return "{}_{}".format(self.wink.object_id(),
+                                  self.wink.capability())
+        return self.wink.object_id()
+
+    @property
     def available(self):
         """Return true if connection == True."""
         return self.wink.available()
@@ -763,8 +771,7 @@ class WinkDevice(Entity):
 class WinkSirenDevice(WinkDevice):
     """Representation of a Wink siren device."""
 
-    @asyncio.coroutine
-    def async_added_to_hass(self):
+    async def async_added_to_hass(self):
         """Call when entity is added to hass."""
         self.hass.data[DOMAIN]['entities']['switch'].append(self)
 
@@ -824,8 +831,7 @@ class WinkNimbusDialDevice(WinkDevice):
         super().__init__(dial, hass)
         self.parent = nimbus
 
-    @asyncio.coroutine
-    def async_added_to_hass(self):
+    async def async_added_to_hass(self):
         """Call when entity is added to hass."""
         self.hass.data[DOMAIN]['entities']['sensor'].append(self)
 

@@ -4,17 +4,20 @@ Platform to retrieve Jewish calendar information for Home Assistant.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/sensor.jewish_calendar/
 """
+from datetime import timedelta
 import logging
 
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
+from homeassistant.const import (
+    CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME, SUN_EVENT_SUNSET)
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.sun import get_astral_event_date
 import homeassistant.util.dt as dt_util
 
-REQUIREMENTS = ['hdate==0.6.3']
+REQUIREMENTS = ['hdate==0.7.5']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +67,8 @@ async def async_setup_platform(
     dev = []
     for sensor_type in config[CONF_SENSORS]:
         dev.append(JewishCalSensor(
-            name, language, sensor_type, latitude, longitude, diaspora))
+            name, language, sensor_type, latitude, longitude,
+            hass.config.time_zone, diaspora))
     async_add_entities(dev, True)
 
 
@@ -72,7 +76,8 @@ class JewishCalSensor(Entity):
     """Representation of an Jewish calendar sensor."""
 
     def __init__(
-            self, name, language, sensor_type, latitude, longitude, diaspora):
+            self, name, language, sensor_type, latitude, longitude, timezone,
+            diaspora):
         """Initialize the Jewish calendar sensor."""
         self.client_name = name
         self._name = SENSOR_TYPES[sensor_type][0]
@@ -81,6 +86,7 @@ class JewishCalSensor(Entity):
         self._state = None
         self.latitude = latitude
         self.longitude = longitude
+        self.timezone = timezone
         self.diaspora = diaspora
         _LOGGER.debug("Sensor %s initialized", self.type)
 
@@ -103,31 +109,33 @@ class JewishCalSensor(Entity):
         """Update the state of the sensor."""
         import hdate
 
-        today = dt_util.now().date()
+        now = dt_util.as_local(dt_util.now())
+        _LOGGER.debug("Now: %s Timezone = %s", now, now.tzinfo)
+
+        today = now.date()
+        sunset = dt_util.as_local(get_astral_event_date(
+            self.hass, SUN_EVENT_SUNSET, today))
+
+        _LOGGER.debug("Now: %s Sunset: %s", now, sunset)
+
+        if now > sunset:
+            today += timedelta(1)
 
         date = hdate.HDate(
             today, diaspora=self.diaspora, hebrew=self._hebrew)
 
         if self.type == 'date':
-            self._state = hdate.date.get_hebrew_date(
-                date.h_day, date.h_month, date.h_year, hebrew=self._hebrew)
+            self._state = date.hebrew_date
         elif self.type == 'weekly_portion':
-            self._state = hdate.date.get_parashe(
-                date.get_reading(self.diaspora), hebrew=self._hebrew)
+            self._state = date.parasha
         elif self.type == 'holiday_name':
-            try:
-                self._state = next(
-                    x.description[self._hebrew].long
-                    for x in hdate.htables.HOLIDAYS
-                    if x.index == date.get_holyday())
-            except StopIteration:
-                self._state = None
+            self._state = date.holiday_description
         elif self.type == 'holyness':
-            self._state = hdate.date.get_holyday_type(date.get_holyday())
+            self._state = date.holiday_type
         else:
             times = hdate.Zmanim(
                 date=today, latitude=self.latitude, longitude=self.longitude,
-                hebrew=self._hebrew).zmanim
+                timezone=self.timezone, hebrew=self._hebrew).zmanim
             self._state = times[self.type].time()
 
         _LOGGER.debug("New value: %s", self._state)

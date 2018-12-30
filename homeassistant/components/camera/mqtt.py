@@ -10,10 +10,13 @@ import logging
 
 import voluptuous as vol
 
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.core import callback
-from homeassistant.components import mqtt
 from homeassistant.const import CONF_NAME
+from homeassistant.components import mqtt, camera
 from homeassistant.components.camera import Camera, PLATFORM_SCHEMA
+from homeassistant.components.mqtt.discovery import MQTT_DISCOVERY_NEW
 from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,13 +34,26 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 
-@asyncio.coroutine
-def async_setup_platform(hass, config, async_add_entities,
-                         discovery_info=None):
-    """Set up the MQTT Camera."""
-    if discovery_info is not None:
-        config = PLATFORM_SCHEMA(discovery_info)
+async def async_setup_platform(hass: HomeAssistantType, config: ConfigType,
+                               async_add_entities, discovery_info=None):
+    """Set up MQTT camera through configuration.yaml."""
+    await _async_setup_entity(hass, config, async_add_entities)
 
+
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up MQTT camera dynamically through MQTT discovery."""
+    async def async_discover(discovery_payload):
+        """Discover and add a MQTT camera."""
+        config = PLATFORM_SCHEMA(discovery_payload)
+        await _async_setup_entity(hass, config, async_add_entities)
+
+    async_dispatcher_connect(
+        hass, MQTT_DISCOVERY_NEW.format(camera.DOMAIN, 'mqtt'),
+        async_discover)
+
+
+async def _async_setup_entity(hass, config, async_add_entities):
+    """Set up the MQTT Camera."""
     async_add_entities([MqttCamera(
         config.get(CONF_NAME),
         config.get(CONF_UNIQUE_ID),
@@ -73,13 +89,12 @@ class MqttCamera(Camera):
         """Return a unique ID."""
         return self._unique_id
 
-    @asyncio.coroutine
-    def async_added_to_hass(self):
+    async def async_added_to_hass(self):
         """Subscribe MQTT events."""
         @callback
         def message_received(topic, payload, qos):
             """Handle new MQTT messages."""
             self._last_image = payload
 
-        return mqtt.async_subscribe(
+        await mqtt.async_subscribe(
             self.hass, self._topic, message_received, self._qos, None)

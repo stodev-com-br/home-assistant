@@ -23,11 +23,11 @@ def mock_test_component(hass):
 
 
 @pytest.fixture
-def client(hass, aiohttp_client):
+def client(hass, hass_client):
     """Fixture that can interact with the config manager API."""
     hass.loop.run_until_complete(async_setup_component(hass, 'http', {}))
     hass.loop.run_until_complete(config_entries.async_setup(hass))
-    yield hass.loop.run_until_complete(aiohttp_client(hass.http.app))
+    yield hass.loop.run_until_complete(hass_client())
 
 
 @asyncio.coroutine
@@ -206,6 +206,8 @@ def test_create_account(hass, client):
         'title': 'Test Entry',
         'type': 'create_entry',
         'version': 1,
+        'description': None,
+        'description_placeholders': None,
     }
 
 
@@ -266,6 +268,8 @@ def test_two_step_flow(hass, client):
             'type': 'create_entry',
             'title': 'user-title',
             'version': 1,
+            'description': None,
+            'description_placeholders': None,
         }
 
 
