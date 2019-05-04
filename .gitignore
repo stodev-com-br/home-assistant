@@ -55,6 +55,7 @@ pip-log.txt
 .tox
 nosetests.xml
 htmlcov/
+test-reports/
 
 # Translations
 *.mo
@@ -78,11 +79,12 @@ venv
 .venv
 Pipfile*
 share/*
+Scripts/
 
 # vimmy stuff
 *.swp
 *.swo
-
+tags
 ctags.tmp
 
 # vagrant stuff
