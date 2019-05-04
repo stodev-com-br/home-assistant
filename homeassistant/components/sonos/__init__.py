@@ -1,10 +1,9 @@
-"""Component to embed Sonos."""
+"""Support to embed Sonos."""
 from homeassistant import config_entries
 from homeassistant.helpers import config_entry_flow
 
 
 DOMAIN = 'sonos'
-REQUIREMENTS = ['pysonos==0.0.5']
 
 
 async def async_setup(hass, config):
