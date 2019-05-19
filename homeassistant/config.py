@@ -50,6 +50,13 @@ FILE_MIGRATION = (
     ('ios.conf', '.ios.conf'),
 )
 
+CORE_STORAGE_KEY = 'homeassistant.core_config'
+CORE_STORAGE_VERSION = 1
+
+SOURCE_DISCOVERED = 'discovered'
+SOURCE_STORAGE = 'storage'
+SOURCE_YAML = 'yaml'
+
 DEFAULT_CORE_CONFIG = (
     # Tuples (attribute, default, auto detect property, description)
     (CONF_NAME, 'Home', None, 'Name of the location where Home Assistant is '
@@ -205,7 +212,8 @@ def get_default_config_dir() -> str:
     return os.path.join(data_dir, CONFIG_DIR_NAME)  # type: ignore
 
 
-def ensure_config_exists(config_dir: str, detect_location: bool = True)\
+async def async_ensure_config_exists(hass: HomeAssistant, config_dir: str,
+                                     detect_location: bool = True)\
         -> Optional[str]:
     """Ensure a configuration file exists in given configuration directory.
 
@@ -217,18 +225,51 @@ def ensure_config_exists(config_dir: str, detect_location: bool = True)\
     if config_path is None:
         print("Unable to find configuration. Creating default one in",
               config_dir)
-        config_path = create_default_config(config_dir, detect_location)
+        config_path = await async_create_default_config(
+            hass, config_dir, detect_location)
 
     return config_path
 
 
-def create_default_config(config_dir: str, detect_location: bool = True)\
-        -> Optional[str]:
+async def async_create_default_config(
+        hass: HomeAssistant, config_dir: str, detect_location: bool = True
+        ) -> Optional[str]:
     """Create a default configuration file in given configuration directory.
 
     Return path to new config file if success, None if failed.
     This method needs to run in an executor.
     """
+    info = {attr: default for attr, default, _, _ in DEFAULT_CORE_CONFIG}
+
+    if detect_location:
+        session = hass.helpers.aiohttp_client.async_get_clientsession()
+        location_info = await loc_util.async_detect_location_info(session)
+    else:
+        location_info = None
+
+    if location_info:
+        if location_info.use_metric:
+            info[CONF_UNIT_SYSTEM] = CONF_UNIT_SYSTEM_METRIC
+        else:
+            info[CONF_UNIT_SYSTEM] = CONF_UNIT_SYSTEM_IMPERIAL
+
+        for attr, default, prop, _ in DEFAULT_CORE_CONFIG:
+            if prop is None:
+                continue
+            info[attr] = getattr(location_info, prop) or default
+
+        if location_info.latitude and location_info.longitude:
+            info[CONF_ELEVATION] = await loc_util.async_get_elevation(
+                session, location_info.latitude, location_info.longitude)
+
+    return await hass.async_add_executor_job(
+        _write_default_config, config_dir, info
+    )
+
+
+def _write_default_config(config_dir: str, info: Dict)\
+        -> Optional[str]:
+    """Write the default config."""
     from homeassistant.components.config.group import (
         CONFIG_PATH as GROUP_CONFIG_PATH)
     from homeassistant.components.config.automation import (
@@ -245,25 +286,6 @@ def create_default_config(config_dir: str, detect_location: bool = True)\
     automation_yaml_path = os.path.join(config_dir, AUTOMATION_CONFIG_PATH)
     script_yaml_path = os.path.join(config_dir, SCRIPT_CONFIG_PATH)
     customize_yaml_path = os.path.join(config_dir, CUSTOMIZE_CONFIG_PATH)
-
-    info = {attr: default for attr, default, _, _ in DEFAULT_CORE_CONFIG}
-
-    location_info = detect_location and loc_util.detect_location_info()
-
-    if location_info:
-        if location_info.use_metric:
-            info[CONF_UNIT_SYSTEM] = CONF_UNIT_SYSTEM_METRIC
-        else:
-            info[CONF_UNIT_SYSTEM] = CONF_UNIT_SYSTEM_IMPERIAL
-
-        for attr, default, prop, _ in DEFAULT_CORE_CONFIG:
-            if prop is None:
-                continue
-            info[attr] = getattr(location_info, prop) or default
-
-        if location_info.latitude and location_info.longitude:
-            info[CONF_ELEVATION] = loc_util.elevation(
-                location_info.latitude, location_info.longitude)
 
     # Writing files with YAML does not create the most human readable results
     # So we're hard coding a YAML template.
@@ -458,6 +480,42 @@ def _format_config_error(ex: vol.Invalid, domain: str, config: Dict) -> str:
     return message
 
 
+def _set_time_zone(hass: HomeAssistant, time_zone_str: Optional[str]) -> None:
+    """Help to set the time zone."""
+    if time_zone_str is None:
+        return
+
+    time_zone = date_util.get_time_zone(time_zone_str)
+
+    if time_zone:
+        hass.config.time_zone = time_zone
+        date_util.set_default_time_zone(time_zone)
+    else:
+        _LOGGER.error("Received invalid time zone %s", time_zone_str)
+
+
+async def async_load_ha_core_config(hass: HomeAssistant) -> None:
+    """Store [homeassistant] core config."""
+    store = hass.helpers.storage.Store(CORE_STORAGE_VERSION, CORE_STORAGE_KEY,
+                                       private=True)
+    data = await store.async_load()
+    if not data:
+        return
+
+    hac = hass.config
+    hac.config_source = SOURCE_STORAGE
+    hac.latitude = data['latitude']
+    hac.longitude = data['longitude']
+    hac.elevation = data['elevation']
+    unit_system = data['unit_system']
+    if unit_system == CONF_UNIT_SYSTEM_IMPERIAL:
+        hac.units = IMPERIAL_SYSTEM
+    else:
+        hac.units = METRIC_SYSTEM
+    hac.location_name = data['location_name']
+    _set_time_zone(hass, data['time_zone'])
+
+
 async def async_process_ha_core_config(
         hass: HomeAssistant, config: Dict,
         api_password: Optional[str] = None,
@@ -496,20 +554,14 @@ async def async_process_ha_core_config(
             auth_conf,
             mfa_conf))
 
+    await async_load_ha_core_config(hass)
+
     hac = hass.config
 
-    def set_time_zone(time_zone_str: Optional[str]) -> None:
-        """Help to set the time zone."""
-        if time_zone_str is None:
-            return
-
-        time_zone = date_util.get_time_zone(time_zone_str)
-
-        if time_zone:
-            hac.time_zone = time_zone
-            date_util.set_default_time_zone(time_zone)
-        else:
-            _LOGGER.error("Received invalid time zone %s", time_zone_str)
+    if any([k in config for k in [
+            CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME, CONF_ELEVATION,
+            CONF_TIME_ZONE, CONF_UNIT_SYSTEM]]):
+        hac.config_source = SOURCE_YAML
 
     for key, attr in ((CONF_LATITUDE, 'latitude'),
                       (CONF_LONGITUDE, 'longitude'),
@@ -518,7 +570,7 @@ async def async_process_ha_core_config(
         if key in config:
             setattr(hac, attr, config[key])
 
-    set_time_zone(config.get(CONF_TIME_ZONE))
+    _set_time_zone(hass, config.get(CONF_TIME_ZONE))
 
     # Init whitelist external dir
     hac.whitelist_external_dirs = {hass.config.path('www')}
@@ -576,8 +628,10 @@ async def async_process_ha_core_config(
     # If we miss some of the needed values, auto detect them
     if None in (hac.latitude, hac.longitude, hac.units,
                 hac.time_zone):
-        info = await hass.async_add_executor_job(
-            loc_util.detect_location_info)
+        hac.config_source = SOURCE_DISCOVERED
+        info = await loc_util.async_detect_location_info(
+            hass.helpers.aiohttp_client.async_get_clientsession()
+        )
 
         if info is None:
             _LOGGER.error("Could not detect location information")
@@ -597,13 +651,14 @@ async def async_process_ha_core_config(
             discovered.append(('name', info.city))
 
         if hac.time_zone is None:
-            set_time_zone(info.time_zone)
+            _set_time_zone(hass, info.time_zone)
             discovered.append(('time_zone', info.time_zone))
 
     if hac.elevation is None and hac.latitude is not None and \
        hac.longitude is not None:
-        elevation = await hass.async_add_executor_job(
-            loc_util.elevation, hac.latitude, hac.longitude)
+        elevation = await loc_util.async_get_elevation(
+            hass.helpers.aiohttp_client.async_get_clientsession(),
+            hac.latitude, hac.longitude)
         hac.elevation = elevation
         discovered.append(('elevation', elevation))
 
@@ -611,6 +666,24 @@ async def async_process_ha_core_config(
         _LOGGER.warning(
             "Incomplete core configuration. Auto detected %s",
             ", ".join('{}: {}'.format(key, val) for key, val in discovered))
+
+
+async def async_store_ha_core_config(hass: HomeAssistant) -> None:
+    """Store [homeassistant] core config."""
+    config = hass.config.as_dict()
+
+    data = {
+        'latitude': config['latitude'],
+        'longitude': config['longitude'],
+        'elevation': config['elevation'],
+        'unit_system': hass.config.units.name,
+        'location_name': config['location_name'],
+        'time_zone': config['time_zone'],
+    }
+
+    store = hass.helpers.storage.Store(CORE_STORAGE_VERSION, CORE_STORAGE_KEY,
+                                       private=True)
+    await store.async_save(data)
 
 
 def _log_pkg_error(
@@ -753,7 +826,11 @@ async def async_process_component_config(
     This method must be run in the event loop.
     """
     domain = integration.domain
-    component = integration.get_component()
+    try:
+        component = integration.get_component()
+    except ImportError as ex:
+        _LOGGER.error("Unable to import %s: %s", domain, ex)
+        return None
 
     if hasattr(component, 'CONFIG_SCHEMA'):
         try:
@@ -806,12 +883,20 @@ async def async_process_component_config(
 
     # Create a copy of the configuration with all config for current
     # component removed and add validated config back in.
-    filter_keys = extract_domain_configs(config, domain)
-    config = {key: value for key, value in config.items()
-              if key not in filter_keys}
+    config = config_without_domain(config, domain)
     config[domain] = platforms
 
     return config
+
+
+@callback
+def config_without_domain(config: Dict, domain: str) -> Dict:
+    """Return a config with all configuration for a domain removed."""
+    filter_keys = extract_domain_configs(config, domain)
+    return {
+        key: value for key, value in config.items()
+        if key not in filter_keys
+    }
 
 
 async def async_check_ha_config_file(hass: HomeAssistant) -> Optional[str]:
