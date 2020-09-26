@@ -4,6 +4,8 @@ import queue
 import threading
 import time
 
+from ibmiotf import MissingMessageEncoderException
+from ibmiotf.gateway import Client
 import voluptuous as vol
 
 from homeassistant.const import (
@@ -67,16 +69,15 @@ CONFIG_SCHEMA = vol.Schema(
 
 def setup(hass, config):
     """Set up the Watson IoT Platform component."""
-    from ibmiotf import gateway
 
     conf = config[DOMAIN]
 
     include = conf[CONF_INCLUDE]
     exclude = conf[CONF_EXCLUDE]
-    whitelist_e = set(include[CONF_ENTITIES])
-    whitelist_d = set(include[CONF_DOMAINS])
-    blacklist_e = set(exclude[CONF_ENTITIES])
-    blacklist_d = set(exclude[CONF_DOMAINS])
+    include_e = set(include[CONF_ENTITIES])
+    include_d = set(include[CONF_DOMAINS])
+    exclude_e = set(exclude[CONF_ENTITIES])
+    exclude_d = set(exclude[CONF_DOMAINS])
 
     client_args = {
         "org": conf[CONF_ORG],
@@ -85,7 +86,7 @@ def setup(hass, config):
         "auth-method": "token",
         "auth-token": conf[CONF_TOKEN],
     }
-    watson_gateway = gateway.Client(client_args)
+    watson_gateway = Client(client_args)
 
     def event_to_json(event):
         """Add an event to the outgoing list."""
@@ -93,13 +94,13 @@ def setup(hass, config):
         if (
             state is None
             or state.state in (STATE_UNKNOWN, "", STATE_UNAVAILABLE)
-            or state.entity_id in blacklist_e
-            or state.domain in blacklist_d
+            or state.entity_id in exclude_e
+            or state.domain in exclude_d
         ):
             return
 
-        if (whitelist_e and state.entity_id not in whitelist_e) or (
-            whitelist_d and state.domain not in whitelist_d
+        if (include_e and state.entity_id not in include_e) or (
+            include_d and state.domain not in include_d
         ):
             return
 
@@ -190,7 +191,6 @@ class WatsonIOTThread(threading.Thread):
 
     def write_to_watson(self, events):
         """Write preprocessed events to watson."""
-        import ibmiotf
 
         for event in events:
             for retry in range(MAX_TRIES + 1):
@@ -208,7 +208,7 @@ class WatsonIOTThread(threading.Thread):
                         _LOGGER.error("Failed to publish message to Watson IoT")
                         continue
                     break
-                except (ibmiotf.MissingMessageEncoderException, IOError):
+                except (MissingMessageEncoderException, OSError):
                     if retry < MAX_TRIES:
                         time.sleep(RETRY_DELAY)
                     else:

@@ -1,5 +1,5 @@
 """Demo implementation of the media player."""
-from homeassistant.components.media_player import MediaPlayerDevice
+from homeassistant.components.media_player import MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_MOVIE,
     MEDIA_TYPE_MUSIC,
@@ -24,9 +24,9 @@ from homeassistant.const import STATE_OFF, STATE_PAUSED, STATE_PLAYING
 import homeassistant.util.dt as dt_util
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the media player demo platform."""
-    add_entities(
+    async_add_entities(
         [
             DemoYoutubePlayer(
                 "Living Room",
@@ -43,7 +43,11 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     )
 
 
-YOUTUBE_COVER_URL_FORMAT = "https://img.youtube.com/vi/{}/hqdefault.jpg"
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up the Demo config entry."""
+    await async_setup_platform(hass, {}, async_add_entities)
+
+
 SOUND_MODE_LIST = ["Dummy Music", "Dummy Movie"]
 DEFAULT_SOUND_MODE = "Dummy Music"
 
@@ -57,7 +61,6 @@ YOUTUBE_PLAYER_SUPPORT = (
     | SUPPORT_PLAY
     | SUPPORT_SHUFFLE_SET
     | SUPPORT_SELECT_SOUND_MODE
-    | SUPPORT_SELECT_SOURCE
     | SUPPORT_SEEK
 )
 
@@ -89,7 +92,7 @@ NETFLIX_PLAYER_SUPPORT = (
 )
 
 
-class AbstractDemoPlayer(MediaPlayerDevice):
+class AbstractDemoPlayer(MediaPlayerEntity):
     """A demo media players."""
 
     # We only implement the methods that we support
@@ -233,7 +236,7 @@ class DemoYoutubePlayer(AbstractDemoPlayer):
     @property
     def media_image_url(self):
         """Return the image url of current playing media."""
-        return YOUTUBE_COVER_URL_FORMAT.format(self.youtube_id)
+        return f"https://img.youtube.com/vi/{self.youtube_id}/hqdefault.jpg"
 
     @property
     def media_title(self):
@@ -335,7 +338,7 @@ class DemoMusicPlayer(AbstractDemoPlayer):
     @property
     def media_image_url(self):
         """Return the image url of current playing media."""
-        return "https://graph.facebook.com/v2.5/107771475912710/" "picture?type=large"
+        return "https://graph.facebook.com/v2.5/107771475912710/picture?type=large"
 
     @property
     def media_title(self):
@@ -393,6 +396,7 @@ class DemoTVShowPlayer(AbstractDemoPlayer):
         self._cur_episode = 1
         self._episode_count = 13
         self._source = "dvd"
+        self._source_list = ["dvd", "youtube"]
 
     @property
     def media_content_id(self):
@@ -443,6 +447,11 @@ class DemoTVShowPlayer(AbstractDemoPlayer):
     def source(self):
         """Return the current input source."""
         return self._source
+
+    @property
+    def source_list(self):
+        """List of available sources."""
+        return self._source_list
 
     @property
     def supported_features(self):

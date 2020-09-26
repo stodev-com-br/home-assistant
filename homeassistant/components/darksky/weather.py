@@ -1,7 +1,8 @@
 """Support for retrieving meteorological data from Dark Sky."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 
+import forecastio
 from requests.exceptions import ConnectionError as ConnectError, HTTPError, Timeout
 import voluptuous as vol
 
@@ -29,6 +30,7 @@ from homeassistant.const import (
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.util import Throttle
+from homeassistant.util.dt import utc_from_timestamp
 from homeassistant.util.pressure import convert as convert_pressure
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,6 +102,11 @@ class DarkSkyWeather(WeatherEntity):
         self._ds_currently = None
         self._ds_hourly = None
         self._ds_daily = None
+
+    @property
+    def available(self):
+        """Return if weather data is available from Dark Sky."""
+        return self._ds_data is not None
 
     @property
     def attribution(self):
@@ -178,7 +185,7 @@ class DarkSkyWeather(WeatherEntity):
         if self._mode == "daily":
             data = [
                 {
-                    ATTR_FORECAST_TIME: datetime.fromtimestamp(
+                    ATTR_FORECAST_TIME: utc_from_timestamp(
                         entry.d.get("time")
                     ).isoformat(),
                     ATTR_FORECAST_TEMP: entry.d.get("temperatureHigh"),
@@ -195,7 +202,7 @@ class DarkSkyWeather(WeatherEntity):
         else:
             data = [
                 {
-                    ATTR_FORECAST_TIME: datetime.fromtimestamp(
+                    ATTR_FORECAST_TIME: utc_from_timestamp(
                         entry.d.get("time")
                     ).isoformat(),
                     ATTR_FORECAST_TEMP: entry.d.get("temperature"),
@@ -214,7 +221,8 @@ class DarkSkyWeather(WeatherEntity):
         self._dark_sky.update()
 
         self._ds_data = self._dark_sky.data
-        self._ds_currently = self._dark_sky.currently.d
+        currently = self._dark_sky.currently
+        self._ds_currently = currently.d if currently else {}
         self._ds_hourly = self._dark_sky.hourly
         self._ds_daily = self._dark_sky.daily
 
@@ -233,12 +241,11 @@ class DarkSkyData:
         self.currently = None
         self.hourly = None
         self.daily = None
+        self._connect_error = False
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self):
         """Get the latest data from Dark Sky."""
-        import forecastio
-
         try:
             self.data = forecastio.load_forecast(
                 self._api_key, self.latitude, self.longitude, units=self.requested_units
@@ -246,8 +253,13 @@ class DarkSkyData:
             self.currently = self.data.currently()
             self.hourly = self.data.hourly()
             self.daily = self.data.daily()
+            if self._connect_error:
+                self._connect_error = False
+                _LOGGER.info("Reconnected to Dark Sky")
         except (ConnectError, HTTPError, Timeout, ValueError) as error:
-            _LOGGER.error("Unable to connect to Dark Sky. %s", error)
+            if not self._connect_error:
+                self._connect_error = True
+                _LOGGER.error("Unable to connect to Dark Sky. %s", error)
             self.data = None
 
     @property

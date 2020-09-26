@@ -1,9 +1,9 @@
 """Test cases around the demo fan platform."""
 import pytest
 
-from homeassistant.setup import async_setup_component
 from homeassistant.components import fan
 from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.setup import async_setup_component
 
 from tests.components.fan import common
 
@@ -16,11 +16,10 @@ def get_entity(hass):
 
 
 @pytest.fixture(autouse=True)
-def setup_comp(hass):
+async def setup_comp(hass):
     """Initialize components."""
-    hass.loop.run_until_complete(
-        async_setup_component(hass, fan.DOMAIN, {"fan": {"platform": "demo"}})
-    )
+    assert await async_setup_component(hass, fan.DOMAIN, {"fan": {"platform": "demo"}})
+    await hass.async_block_till_done()
 
 
 async def test_turn_on(hass):

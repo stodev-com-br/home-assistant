@@ -1,0 +1,7 @@
+{
+    "config": {
+        "abort": {
+            "unknown": "Ilmnes tundmatu viga"
+        }
+    }
+}

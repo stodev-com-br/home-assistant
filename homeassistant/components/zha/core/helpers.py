@@ -2,15 +2,23 @@
 Helpers for Zigbee Home Automation.
 
 For more details about this component, please refer to the documentation at
-https://home-assistant.io/components/zha/
+https://home-assistant.io/integrations/zha/
 """
+
 import asyncio
 import collections
+import functools
+import itertools
 import logging
+from random import uniform
+from typing import Any, Callable, Iterator, List, Optional
 
-from homeassistant.core import callback
+import zigpy.exceptions
+import zigpy.types
 
-from .const import CLUSTER_TYPE_IN, CLUSTER_TYPE_OUT, DEFAULT_BAUDRATE, RadioType
+from homeassistant.core import State, callback
+
+from .const import CLUSTER_TYPE_IN, CLUSTER_TYPE_OUT, DATA_ZHA, DATA_ZHA_GATEWAY
 from .registries import BINDABLE_CLUSTERS
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,59 +45,6 @@ async def safe_read(
         return result
     except Exception:  # pylint: disable=broad-except
         return {}
-
-
-async def check_zigpy_connection(usb_path, radio_type, database_path):
-    """Test zigpy radio connection."""
-    if radio_type == RadioType.ezsp.name:
-        import bellows.ezsp
-        from bellows.zigbee.application import ControllerApplication
-
-        radio = bellows.ezsp.EZSP()
-    elif radio_type == RadioType.xbee.name:
-        import zigpy_xbee.api
-        from zigpy_xbee.zigbee.application import ControllerApplication
-
-        radio = zigpy_xbee.api.XBee()
-    elif radio_type == RadioType.deconz.name:
-        import zigpy_deconz.api
-        from zigpy_deconz.zigbee.application import ControllerApplication
-
-        radio = zigpy_deconz.api.Deconz()
-    elif radio_type == RadioType.zigate.name:
-        import zigpy_zigate.api
-        from zigpy_zigate.zigbee.application import ControllerApplication
-
-        radio = zigpy_zigate.api.ZiGate()
-    try:
-        await radio.connect(usb_path, DEFAULT_BAUDRATE)
-        controller = ControllerApplication(radio, database_path)
-        await asyncio.wait_for(controller.startup(auto_form=True), timeout=30)
-        await controller.shutdown()
-    except Exception:  # pylint: disable=broad-except
-        return False
-    return True
-
-
-def convert_ieee(ieee_str):
-    """Convert given ieee string to EUI64."""
-    from zigpy.types import EUI64, uint8_t
-
-    if ieee_str is None:
-        return None
-    return EUI64([uint8_t(p, base=16) for p in ieee_str.split(":")])
-
-
-def get_attr_id_by_name(cluster, attr_name):
-    """Get the attribute id for a cluster attribute by its name."""
-    return next(
-        (
-            attrid
-            for attrid, (attrname, datatype) in cluster.attributes.items()
-            if attr_name == attrname
-        ),
-        None,
-    )
 
 
 async def get_matched_clusters(source_zha_device, target_zha_device):
@@ -132,6 +87,55 @@ def async_is_bindable_target(source_zha_device, target_zha_device):
     return False
 
 
+async def async_get_zha_device(hass, device_id):
+    """Get a ZHA device for the given device registry id."""
+    device_registry = await hass.helpers.device_registry.async_get_registry()
+    registry_device = device_registry.async_get(device_id)
+    zha_gateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
+    ieee_address = list(list(registry_device.identifiers)[0])[1]
+    ieee = zigpy.types.EUI64.convert(ieee_address)
+    return zha_gateway.devices[ieee]
+
+
+def find_state_attributes(states: List[State], key: str) -> Iterator[Any]:
+    """Find attributes with matching key from states."""
+    for state in states:
+        value = state.attributes.get(key)
+        if value is not None:
+            yield value
+
+
+def mean_int(*args):
+    """Return the mean of the supplied values."""
+    return int(sum(args) / len(args))
+
+
+def mean_tuple(*args):
+    """Return the mean values along the columns of the supplied values."""
+    return tuple(sum(x) / len(x) for x in zip(*args))
+
+
+def reduce_attribute(
+    states: List[State],
+    key: str,
+    default: Optional[Any] = None,
+    reduce: Callable[..., Any] = mean_int,
+) -> Any:
+    """Find the first attribute matching key from states.
+
+    If none are found, return default.
+    """
+    attrs = list(find_state_attributes(states, key))
+
+    if not attrs:
+        return default
+
+    if len(attrs) == 1:
+        return attrs[0]
+
+    return reduce(*attrs)
+
+
 class LogMixin:
     """Log helper."""
 
@@ -154,3 +158,50 @@ class LogMixin:
     def error(self, msg, *args):
         """Error level log."""
         return self.log(logging.ERROR, msg, *args)
+
+
+def retryable_req(
+    delays=(1, 5, 10, 15, 30, 60, 120, 180, 360, 600, 900, 1800), raise_=False
+):
+    """Make a method with ZCL requests retryable.
+
+    This adds delays keyword argument to function.
+    len(delays) is number of tries.
+    raise_ if the final attempt should raise the exception.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(channel, *args, **kwargs):
+
+            exceptions = (zigpy.exceptions.ZigbeeException, asyncio.TimeoutError)
+            try_count, errors = 1, []
+            for delay in itertools.chain(delays, [None]):
+                try:
+                    return await func(channel, *args, **kwargs)
+                except exceptions as ex:
+                    errors.append(ex)
+                    if delay:
+                        delay = uniform(delay * 0.75, delay * 1.25)
+                        channel.debug(
+                            (
+                                "%s: retryable request #%d failed: %s. "
+                                "Retrying in %ss"
+                            ),
+                            func.__name__,
+                            try_count,
+                            ex,
+                            round(delay, 1),
+                        )
+                        try_count += 1
+                        await asyncio.sleep(delay)
+                    else:
+                        channel.warning(
+                            "%s: all attempts have failed: %s", func.__name__, errors
+                        )
+                        if raise_:
+                            raise
+
+        return wrapper
+
+    return decorator

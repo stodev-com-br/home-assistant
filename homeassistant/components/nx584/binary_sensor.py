@@ -3,13 +3,14 @@ import logging
 import threading
 import time
 
+from nx584 import client as nx584_client
 import requests
 import voluptuous as vol
 
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES,
-    BinarySensorDevice,
     PLATFORM_SCHEMA,
+    BinarySensorEntity,
 )
 from homeassistant.const import CONF_HOST, CONF_PORT
 import homeassistant.helpers.config_validation as cv
@@ -39,7 +40,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the NX584 binary sensor platform."""
-    from nx584 import client as nx584_client
 
     host = config.get(CONF_HOST)
     port = config.get(CONF_PORT)
@@ -72,7 +72,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     return True
 
 
-class NX584ZoneSensor(BinarySensorDevice):
+class NX584ZoneSensor(BinarySensorEntity):
     """Representation of a NX584 zone as a sensor."""
 
     def __init__(self, zone, zone_type):
@@ -101,13 +101,18 @@ class NX584ZoneSensor(BinarySensorDevice):
         # True means "faulted" or "open" or "abnormal state"
         return self._zone["state"]
 
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        return {"zone_number": self._zone["number"]}
+
 
 class NX584Watcher(threading.Thread):
     """Event listener thread to process NX584 events."""
 
     def __init__(self, client, zone_sensors):
         """Initialize NX584 watcher thread."""
-        super(NX584Watcher, self).__init__()
+        super().__init__()
         self.daemon = True
         self._client = client
         self._zone_sensors = zone_sensors

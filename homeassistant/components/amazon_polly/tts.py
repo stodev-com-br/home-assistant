@@ -1,6 +1,7 @@
 """Support for the Amazon Polly text to speech service."""
 import logging
 
+import boto3
 import voluptuous as vol
 
 from homeassistant.components.tts import PLATFORM_SCHEMA, Provider
@@ -33,6 +34,7 @@ SUPPORTED_REGIONS = [
     "sa-east-1",
 ]
 
+CONF_ENGINE = "engine"
 CONF_VOICE = "voice"
 CONF_OUTPUT_FORMAT = "output_format"
 CONF_SAMPLE_RATE = "sample_rate"
@@ -101,10 +103,12 @@ SUPPORTED_VOICES = [
 
 SUPPORTED_OUTPUT_FORMATS = ["mp3", "ogg_vorbis", "pcm"]
 
-SUPPORTED_SAMPLE_RATES = ["8000", "16000", "22050"]
+SUPPORTED_ENGINES = ["neural", "standard"]
+
+SUPPORTED_SAMPLE_RATES = ["8000", "16000", "22050", "24000"]
 
 SUPPORTED_SAMPLE_RATES_MAP = {
-    "mp3": ["8000", "16000", "22050"],
+    "mp3": ["8000", "16000", "22050", "24000"],
     "ogg_vorbis": ["8000", "16000", "22050"],
     "pcm": ["8000", "16000"],
 }
@@ -113,6 +117,7 @@ SUPPORTED_TEXT_TYPES = ["text", "ssml"]
 
 CONTENT_TYPE_EXTENSIONS = {"audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/pcm": "pcm"}
 
+DEFAULT_ENGINE = "standard"
 DEFAULT_VOICE = "Joanna"
 DEFAULT_OUTPUT_FORMAT = "mp3"
 DEFAULT_TEXT_TYPE = "text"
@@ -126,6 +131,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Inclusive(CONF_SECRET_ACCESS_KEY, ATTR_CREDENTIALS): cv.string,
         vol.Exclusive(CONF_PROFILE_NAME, ATTR_CREDENTIALS): cv.string,
         vol.Optional(CONF_VOICE, default=DEFAULT_VOICE): vol.In(SUPPORTED_VOICES),
+        vol.Optional(CONF_ENGINE, default=DEFAULT_ENGINE): vol.In(SUPPORTED_ENGINES),
         vol.Optional(CONF_OUTPUT_FORMAT, default=DEFAULT_OUTPUT_FORMAT): vol.In(
             SUPPORTED_OUTPUT_FORMATS
         ),
@@ -139,9 +145,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
-def get_engine(hass, config):
+def get_engine(hass, config, discovery_info=None):
     """Set up Amazon Polly speech component."""
-    output_format = config.get(CONF_OUTPUT_FORMAT)
+    output_format = config[CONF_OUTPUT_FORMAT]
     sample_rate = config.get(CONF_SAMPLE_RATE, DEFAULT_SAMPLE_RATES[output_format])
     if sample_rate not in SUPPORTED_SAMPLE_RATES_MAP.get(output_format):
         _LOGGER.error(
@@ -151,15 +157,13 @@ def get_engine(hass, config):
 
     config[CONF_SAMPLE_RATE] = sample_rate
 
-    import boto3
-
     profile = config.get(CONF_PROFILE_NAME)
 
     if profile is not None:
         boto3.setup_default_session(profile_name=profile)
 
     aws_config = {
-        CONF_REGION: config.get(CONF_REGION),
+        CONF_REGION: config[CONF_REGION],
         CONF_ACCESS_KEY_ID: config.get(CONF_ACCESS_KEY_ID),
         CONF_SECRET_ACCESS_KEY: config.get(CONF_SECRET_ACCESS_KEY),
     }
@@ -193,7 +197,7 @@ class AmazonPollyProvider(Provider):
         self.config = config
         self.supported_langs = supported_languages
         self.all_voices = all_voices
-        self.default_voice = self.config.get(CONF_VOICE)
+        self.default_voice = self.config[CONF_VOICE]
         self.name = "Amazon Polly"
 
     @property
@@ -225,6 +229,7 @@ class AmazonPollyProvider(Provider):
             return None, None
 
         resp = self.client.synthesize_speech(
+            Engine=self.config[CONF_ENGINE],
             OutputFormat=self.config[CONF_OUTPUT_FORMAT],
             SampleRate=self.config[CONF_SAMPLE_RATE],
             Text=message,

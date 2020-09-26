@@ -1,11 +1,12 @@
 """The test for the sql sensor platform."""
 import unittest
+
 import pytest
 import voluptuous as vol
 
 from homeassistant.components.sql.sensor import validate_sql_select
-from homeassistant.setup import setup_component
 from homeassistant.const import STATE_UNKNOWN
+from homeassistant.setup import setup_component
 
 from tests.common import get_test_home_assistant
 
@@ -38,6 +39,7 @@ class TestSQLSensor(unittest.TestCase):
         }
 
         assert setup_component(self.hass, "sensor", config)
+        self.hass.block_till_done()
 
         state = self.hass.states.get("sensor.count_tables")
         assert state.state == "5"
@@ -63,6 +65,7 @@ class TestSQLSensor(unittest.TestCase):
         }
 
         assert setup_component(self.hass, "sensor", config)
+        self.hass.block_till_done()
 
         state = self.hass.states.get("sensor.count_tables")
         assert state.state == STATE_UNKNOWN

@@ -3,9 +3,10 @@ from datetime import timedelta
 import logging
 import os
 
+import mpd
 import voluptuous as vol
 
-from homeassistant.components.media_player import MediaPlayerDevice, PLATFORM_SCHEMA
+from homeassistant.components.media_player import PLATFORM_SCHEMA, MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_MUSIC,
     MEDIA_TYPE_PLAYLIST,
@@ -36,6 +37,7 @@ from homeassistant.const import (
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.util import Throttle
+import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,14 +81,12 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities([device], True)
 
 
-class MpdDevice(MediaPlayerDevice):
+class MpdDevice(MediaPlayerEntity):
     """Representation of a MPD server."""
 
     # pylint: disable=no-member
     def __init__(self, server, port, password, name):
         """Initialize the MPD device."""
-        import mpd
-
         self.server = server
         self.port = port
         self._name = name
@@ -99,6 +99,8 @@ class MpdDevice(MediaPlayerDevice):
         self._is_connected = False
         self._muted = False
         self._muted_volume = 0
+        self._media_position_updated_at = None
+        self._media_position = None
 
         # set up MPD client
         self._client = mpd.MPDClient()
@@ -107,8 +109,6 @@ class MpdDevice(MediaPlayerDevice):
 
     def _connect(self):
         """Connect to MPD."""
-        import mpd
-
         try:
             self._client.connect(self.server, self.port)
 
@@ -121,8 +121,6 @@ class MpdDevice(MediaPlayerDevice):
 
     def _disconnect(self):
         """Disconnect from MPD."""
-        import mpd
-
         try:
             self._client.disconnect()
         except mpd.ConnectionError:
@@ -135,6 +133,18 @@ class MpdDevice(MediaPlayerDevice):
         self._status = self._client.status()
         self._currentsong = self._client.currentsong()
 
+        position = self._status.get("elapsed")
+
+        if position is None:
+            position = self._status.get("time")
+
+            if isinstance(position, str) and ":" in position:
+                position = position.split(":")[0]
+
+        if position is not None and self._media_position != position:
+            self._media_position_updated_at = dt_util.utcnow()
+            self._media_position = int(float(position))
+
         self._update_playlists()
 
     @property
@@ -144,15 +154,14 @@ class MpdDevice(MediaPlayerDevice):
 
     def update(self):
         """Get the latest data and update the state."""
-        import mpd
-
         try:
             if not self._is_connected:
                 self._connect()
 
             self._fetch_status()
-        except (mpd.ConnectionError, OSError, BrokenPipeError, ValueError):
+        except (mpd.ConnectionError, OSError, BrokenPipeError, ValueError) as error:
             # Cleanly disconnect in case connection is not in valid state
+            _LOGGER.debug("Error updating status: %s", error)
             self._disconnect()
 
     @property
@@ -196,6 +205,20 @@ class MpdDevice(MediaPlayerDevice):
         return self._currentsong.get("time")
 
     @property
+    def media_position(self):
+        """Position of current playing media in seconds.
+
+        This is returned as part of the mpd status rather than in the details
+        of the current song.
+        """
+        return self._media_position
+
+    @property
+    def media_position_updated_at(self):
+        """Last valid time of media position."""
+        return self._media_position_updated_at
+
+    @property
     def media_title(self):
         """Return the title of current playing media."""
         name = self._currentsong.get("name", None)
@@ -234,7 +257,7 @@ class MpdDevice(MediaPlayerDevice):
     def supported_features(self):
         """Flag media player features that are supported."""
         if self._status is None:
-            return None
+            return 0
 
         supported = SUPPORT_MPD
         if "volume" in self._status:
@@ -261,8 +284,6 @@ class MpdDevice(MediaPlayerDevice):
     @Throttle(PLAYLIST_UPDATE_INTERVAL)
     def _update_playlists(self, **kwargs):
         """Update available MPD playlists."""
-        import mpd
-
         try:
             self._playlists = []
             for playlist_data in self._client.listplaylists():
@@ -294,7 +315,10 @@ class MpdDevice(MediaPlayerDevice):
 
     def media_play(self):
         """Service to send the MPD the command for play/pause."""
-        self._client.pause(0)
+        if self._status["state"] == "pause":
+            self._client.pause(0)
+        else:
+            self._client.play()
 
     def media_pause(self):
         """Service to send the MPD the command for play/pause."""

@@ -1,7 +1,9 @@
 """Support for Apple TV media player."""
 import logging
 
-from homeassistant.components.media_player import MediaPlayerDevice
+import pyatv.const as atv_const
+
+from homeassistant.components.media_player import MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_MUSIC,
     MEDIA_TYPE_TVSHOW,
@@ -74,7 +76,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities([entity])
 
 
-class AppleTvDevice(MediaPlayerDevice):
+class AppleTvDevice(MediaPlayerEntity):
     """Representation of an Apple TV device."""
 
     def __init__(self, atv, name, power):
@@ -112,22 +114,21 @@ class AppleTvDevice(MediaPlayerDevice):
             return STATE_OFF
 
         if self._playing:
-            from pyatv import const
 
             state = self._playing.play_state
             if state in (
-                const.PLAY_STATE_IDLE,
-                const.PLAY_STATE_NO_MEDIA,
-                const.PLAY_STATE_LOADING,
+                atv_const.PLAY_STATE_IDLE,
+                atv_const.PLAY_STATE_NO_MEDIA,
+                atv_const.PLAY_STATE_LOADING,
             ):
                 return STATE_IDLE
-            if state == const.PLAY_STATE_PLAYING:
+            if state == atv_const.PLAY_STATE_PLAYING:
                 return STATE_PLAYING
             if state in (
-                const.PLAY_STATE_PAUSED,
-                const.PLAY_STATE_FAST_FORWARD,
-                const.PLAY_STATE_FAST_BACKWARD,
-                const.PLAY_STATE_STOPPED,
+                atv_const.PLAY_STATE_PAUSED,
+                atv_const.PLAY_STATE_FAST_FORWARD,
+                atv_const.PLAY_STATE_FAST_BACKWARD,
+                atv_const.PLAY_STATE_STOPPED,
             ):
                 # Catch fast forward/backward here so "play" is default action
                 return STATE_PAUSED
@@ -137,7 +138,7 @@ class AppleTvDevice(MediaPlayerDevice):
     def playstatus_update(self, updater, playing):
         """Print what is currently playing when it changes."""
         self._playing = playing
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @callback
     def playstatus_error(self, updater, exception):
@@ -150,20 +151,19 @@ class AppleTvDevice(MediaPlayerDevice):
         # implemented here later.
         updater.start(initial_delay=10)
         self._playing = None
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def media_content_type(self):
         """Content type of current playing media."""
         if self._playing:
-            from pyatv import const
 
             media_type = self._playing.media_type
-            if media_type == const.MEDIA_TYPE_VIDEO:
+            if media_type == atv_const.MEDIA_TYPE_VIDEO:
                 return MEDIA_TYPE_VIDEO
-            if media_type == const.MEDIA_TYPE_MUSIC:
+            if media_type == atv_const.MEDIA_TYPE_MUSIC:
                 return MEDIA_TYPE_MUSIC
-            if media_type == const.MEDIA_TYPE_TV:
+            if media_type == atv_const.MEDIA_TYPE_TV:
                 return MEDIA_TYPE_TVSHOW
 
     @property
@@ -229,62 +229,42 @@ class AppleTvDevice(MediaPlayerDevice):
         self._playing = None
         self._power.set_power_on(False)
 
-    def async_media_play_pause(self):
-        """Pause media on media player.
+    async def async_media_play_pause(self):
+        """Pause media on media player."""
+        if not self._playing:
+            return
+        state = self.state
+        if state == STATE_PAUSED:
+            await self.atv.remote_control.play()
+        elif state == STATE_PLAYING:
+            await self.atv.remote_control.pause()
 
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_play(self):
+        """Play media."""
         if self._playing:
-            state = self.state
-            if state == STATE_PAUSED:
-                return self.atv.remote_control.play()
-            if state == STATE_PLAYING:
-                return self.atv.remote_control.pause()
+            await self.atv.remote_control.play()
 
-    def async_media_play(self):
-        """Play media.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_stop(self):
+        """Stop the media player."""
         if self._playing:
-            return self.atv.remote_control.play()
+            await self.atv.remote_control.stop()
 
-    def async_media_stop(self):
-        """Stop the media player.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_pause(self):
+        """Pause the media player."""
         if self._playing:
-            return self.atv.remote_control.stop()
+            await self.atv.remote_control.pause()
 
-    def async_media_pause(self):
-        """Pause the media player.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_next_track(self):
+        """Send next track command."""
         if self._playing:
-            return self.atv.remote_control.pause()
+            await self.atv.remote_control.next()
 
-    def async_media_next_track(self):
-        """Send next track command.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_previous_track(self):
+        """Send previous track command."""
         if self._playing:
-            return self.atv.remote_control.next()
+            await self.atv.remote_control.previous()
 
-    def async_media_previous_track(self):
-        """Send previous track command.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
+    async def async_media_seek(self, position):
+        """Send seek command."""
         if self._playing:
-            return self.atv.remote_control.previous()
-
-    def async_media_seek(self, position):
-        """Send seek command.
-
-        This method must be run in the event loop and returns a coroutine.
-        """
-        if self._playing:
-            return self.atv.remote_control.set_position(position)
+            await self.atv.remote_control.set_position(position)

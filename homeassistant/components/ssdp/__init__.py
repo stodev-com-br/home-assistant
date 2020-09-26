@@ -2,30 +2,31 @@
 import asyncio
 from datetime import timedelta
 import logging
-from urllib.parse import urlparse
-from xml.etree import ElementTree
 
 import aiohttp
+from defusedxml import ElementTree
 from netdisco import ssdp, util
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.generated.ssdp import SSDP
+from homeassistant.loader import async_get_ssdp
 
 DOMAIN = "ssdp"
 SCAN_INTERVAL = timedelta(seconds=60)
 
-ATTR_HOST = "host"
-ATTR_PORT = "port"
-ATTR_SSDP_DESCRIPTION = "ssdp_description"
-ATTR_ST = "ssdp_st"
-ATTR_NAME = "name"
-ATTR_MODEL_NAME = "model_name"
-ATTR_MODEL_NUMBER = "model_number"
-ATTR_SERIAL = "serial_number"
-ATTR_MANUFACTURER = "manufacturer"
-ATTR_MANUFACTURERURL = "manufacturerURL"
-ATTR_UDN = "udn"
-ATTR_UPNP_DEVICE_TYPE = "upnp_device_type"
+# Attributes for accessing info from SSDP response
+ATTR_SSDP_LOCATION = "ssdp_location"
+ATTR_SSDP_ST = "ssdp_st"
+# Attributes for accessing info from retrieved UPnP device description
+ATTR_UPNP_DEVICE_TYPE = "deviceType"
+ATTR_UPNP_FRIENDLY_NAME = "friendlyName"
+ATTR_UPNP_MANUFACTURER = "manufacturer"
+ATTR_UPNP_MANUFACTURER_URL = "manufacturerURL"
+ATTR_UPNP_MODEL_NAME = "modelName"
+ATTR_UPNP_MODEL_NUMBER = "modelNumber"
+ATTR_UPNP_PRESENTATION_URL = "presentationURL"
+ATTR_UPNP_SERIAL = "serialNumber"
+ATTR_UPNP_UDN = "UDN"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,12 +34,12 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass, config):
     """Set up the SSDP integration."""
 
-    async def initialize():
-        scanner = Scanner(hass)
+    async def initialize(_):
+        scanner = Scanner(hass, await async_get_ssdp(hass))
         await scanner.async_scan(None)
         async_track_time_interval(hass, scanner.async_scan, SCAN_INTERVAL)
 
-    hass.loop.create_task(initialize())
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, initialize)
 
     return True
 
@@ -46,10 +47,11 @@ async def async_setup(hass, config):
 class Scanner:
     """Class to manage SSDP scanning."""
 
-    def __init__(self, hass):
+    def __init__(self, hass, integration_matchers):
         """Initialize class."""
         self.hass = hass
         self.seen = set()
+        self._integration_matchers = integration_matchers
         self._description_cache = {}
 
     async def async_scan(self, _):
@@ -103,28 +105,27 @@ class Scanner:
 
     async def _process_entry(self, entry):
         """Process a single entry."""
-        domains = set(SSDP["st"].get(entry.st, []))
 
-        xml_location = entry.location
+        info = {"st": entry.st}
 
-        if not xml_location:
-            if domains:
-                return (entry, info_from_entry(entry, None), domains)
-            return None
+        if entry.location:
 
-        # Multiple entries usually share same location. Make sure
-        # we fetch it only once.
-        info_req = self._description_cache.get(xml_location)
+            # Multiple entries usually share same location. Make sure
+            # we fetch it only once.
+            info_req = self._description_cache.get(entry.location)
 
-        if info_req is None:
-            info_req = self._description_cache[
-                xml_location
-            ] = self.hass.async_create_task(self._fetch_description(xml_location))
+            if info_req is None:
+                info_req = self._description_cache[
+                    entry.location
+                ] = self.hass.async_create_task(self._fetch_description(entry.location))
 
-        info = await info_req
+            info.update(await info_req)
 
-        domains.update(SSDP["manufacturer"].get(info.get("manufacturer"), []))
-        domains.update(SSDP["device_type"].get(info.get("deviceType"), []))
+        domains = set()
+        for domain, matchers in self._integration_matchers.items():
+            for matcher in matchers:
+                if all(info.get(k) == v for (k, v) in matcher.items()):
+                    domains.add(domain)
 
         if domains:
             return (entry, info_from_entry(entry, info), domains)
@@ -157,23 +158,12 @@ class Scanner:
 
 
 def info_from_entry(entry, device_info):
-    """Get most important info from an entry."""
-    url = urlparse(entry.location)
+    """Get info from an entry."""
     info = {
-        ATTR_HOST: url.hostname,
-        ATTR_PORT: url.port,
-        ATTR_SSDP_DESCRIPTION: entry.location,
-        ATTR_ST: entry.st,
+        ATTR_SSDP_LOCATION: entry.location,
+        ATTR_SSDP_ST: entry.st,
     }
-
     if device_info:
-        info[ATTR_NAME] = device_info.get("friendlyName")
-        info[ATTR_MODEL_NAME] = device_info.get("modelName")
-        info[ATTR_MODEL_NUMBER] = device_info.get("modelNumber")
-        info[ATTR_SERIAL] = device_info.get("serialNumber")
-        info[ATTR_MANUFACTURER] = device_info.get("manufacturer")
-        info[ATTR_MANUFACTURERURL] = device_info.get("manufacturerURL")
-        info[ATTR_UDN] = device_info.get("UDN")
-        info[ATTR_UPNP_DEVICE_TYPE] = device_info.get("deviceType")
+        info.update(device_info)
 
     return info

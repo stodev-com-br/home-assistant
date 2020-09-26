@@ -1,8 +1,7 @@
 """Fixtures for Z-Wave tests."""
-from unittest.mock import patch, MagicMock
-
 import pytest
 
+from tests.async_mock import MagicMock, patch
 from tests.mock.zwave import MockNetwork, MockOption
 
 

@@ -1,7 +1,8 @@
 """Tests for the sigfox sensor."""
 import re
-import requests_mock
 import unittest
+
+import requests_mock
 
 from homeassistant.components.sigfox.sensor import (
     API_URL,
@@ -9,6 +10,7 @@ from homeassistant.components.sigfox.sensor import (
     CONF_API_PASSWORD,
 )
 from homeassistant.setup import setup_component
+
 from tests.common import get_test_home_assistant
 
 TEST_API_LOGIN = "foo"
@@ -37,10 +39,7 @@ class TestSigfoxSensor(unittest.TestCase):
     def setUp(self):
         """Initialize values for this testcase class."""
         self.hass = get_test_home_assistant()
-
-    def tearDown(self):
-        """Stop everything that was started."""
-        self.hass.stop()
+        self.addCleanup(self.hass.stop)
 
     def test_invalid_credentials(self):
         """Test for invalid credentials."""
@@ -48,6 +47,7 @@ class TestSigfoxSensor(unittest.TestCase):
             url = re.compile(API_URL + "devicetypes")
             mock_req.get(url, text="{}", status_code=401)
             assert setup_component(self.hass, "sensor", VALID_CONFIG)
+            self.hass.block_till_done()
         assert len(self.hass.states.entity_ids()) == 0
 
     def test_valid_credentials(self):
@@ -63,6 +63,7 @@ class TestSigfoxSensor(unittest.TestCase):
             mock_req.get(url3, text=VALID_MESSAGE)
 
             assert setup_component(self.hass, "sensor", VALID_CONFIG)
+            self.hass.block_till_done()
 
             assert len(self.hass.states.entity_ids()) == 1
             state = self.hass.states.get("sensor.sigfox_fake_id")

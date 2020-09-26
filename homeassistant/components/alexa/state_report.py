@@ -6,10 +6,11 @@ import logging
 import aiohttp
 import async_timeout
 
-from homeassistant.const import MATCH_ALL
+from homeassistant.const import MATCH_ALL, STATE_ON
+import homeassistant.util.dt as dt_util
 
 from .const import API_CHANGE, Cause
-from .entities import ENTITY_ADAPTERS
+from .entities import ENTITY_ADAPTERS, generate_alexa_id
 from .messages import AlexaResponse
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,6 +26,9 @@ async def async_enable_proactive_mode(hass, smart_home_config):
     await smart_home_config.async_get_access_token()
 
     async def async_entity_state_listener(changed_entity, old_state, new_state):
+        if not hass.is_running:
+            return
+
         if not new_state:
             return
 
@@ -42,6 +46,14 @@ async def async_enable_proactive_mode(hass, smart_home_config):
         for interface in alexa_changed_entity.interfaces():
             if interface.properties_proactively_reported():
                 await async_send_changereport_message(
+                    hass, smart_home_config, alexa_changed_entity
+                )
+                return
+            if (
+                interface.name() == "Alexa.DoorbellEventSource"
+                and new_state.state == STATE_ON
+            ):
+                await async_send_doorbell_event_message(
                     hass, smart_home_config, alexa_changed_entity
                 )
                 return
@@ -89,7 +101,7 @@ async def async_send_changereport_message(
             )
 
     except (asyncio.TimeoutError, aiohttp.ClientError):
-        _LOGGER.error("Timeout sending report to Alexa.")
+        _LOGGER.error("Timeout sending report to Alexa")
         return
 
     response_text = await response.text()
@@ -131,6 +143,10 @@ async def async_send_add_or_update_message(hass, config, entity_ids):
 
     for entity_id in entity_ids:
         domain = entity_id.split(".", 1)[0]
+
+        if domain not in ENTITY_ADAPTERS:
+            continue
+
         alexa_entity = ENTITY_ADAPTERS[domain](hass, config, hass.states.get(entity_id))
         endpoints.append(alexa_entity.serialize_discovery())
 
@@ -161,8 +177,11 @@ async def async_send_delete_message(hass, config, entity_ids):
 
     for entity_id in entity_ids:
         domain = entity_id.split(".", 1)[0]
-        alexa_entity = ENTITY_ADAPTERS[domain](hass, config, hass.states.get(entity_id))
-        endpoints.append({"endpointId": alexa_entity.alexa_id()})
+
+        if domain not in ENTITY_ADAPTERS:
+            continue
+
+        endpoints.append({"endpointId": generate_alexa_id(entity_id)})
 
     payload = {"endpoints": endpoints, "scope": {"type": "BearerToken", "token": token}}
 
@@ -175,4 +194,59 @@ async def async_send_delete_message(hass, config, entity_ids):
 
     return await session.post(
         config.endpoint, headers=headers, json=message_serialized, allow_redirects=True
+    )
+
+
+async def async_send_doorbell_event_message(hass, config, alexa_entity):
+    """Send a DoorbellPress event message for an Alexa entity.
+
+    https://developer.amazon.com/docs/smarthome/send-events-to-the-alexa-event-gateway.html
+    """
+    token = await config.async_get_access_token()
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    endpoint = alexa_entity.alexa_id()
+
+    message = AlexaResponse(
+        name="DoorbellPress",
+        namespace="Alexa.DoorbellEventSource",
+        payload={
+            "cause": {"type": Cause.PHYSICAL_INTERACTION},
+            "timestamp": f"{dt_util.utcnow().replace(tzinfo=None).isoformat()}Z",
+        },
+    )
+
+    message.set_endpoint_full(token, endpoint)
+
+    message_serialized = message.serialize()
+    session = hass.helpers.aiohttp_client.async_get_clientsession()
+
+    try:
+        with async_timeout.timeout(DEFAULT_TIMEOUT):
+            response = await session.post(
+                config.endpoint,
+                headers=headers,
+                json=message_serialized,
+                allow_redirects=True,
+            )
+
+    except (asyncio.TimeoutError, aiohttp.ClientError):
+        _LOGGER.error("Timeout sending report to Alexa")
+        return
+
+    response_text = await response.text()
+
+    _LOGGER.debug("Sent: %s", json.dumps(message_serialized))
+    _LOGGER.debug("Received (%s): %s", response.status, response_text)
+
+    if response.status == 202:
+        return
+
+    response_json = json.loads(response_text)
+
+    _LOGGER.error(
+        "Error when sending DoorbellPress event to Alexa: %s: %s",
+        response_json["payload"]["code"],
+        response_json["payload"]["description"],
     )

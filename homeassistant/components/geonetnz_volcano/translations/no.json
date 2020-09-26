@@ -1,0 +1,12 @@
+{
+    "config": {
+        "error": {
+            "identifier_exists": "Beliggenhet er allerede registrert"
+        },
+        "step": {
+            "user": {
+                "title": "Fyll inn dine filterdetaljer."
+            }
+        }
+    }
+}

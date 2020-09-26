@@ -1,13 +1,11 @@
 {
   "domain": "kodi",
   "name": "Kodi",
-  "documentation": "https://www.home-assistant.io/components/kodi",
-  "requirements": [
-    "jsonrpc-async==0.6",
-    "jsonrpc-websocket==0.6"
-  ],
-  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/kodi",
+  "requirements": ["pykodi==0.2.0"],
   "codeowners": [
-    "@armills"
-  ]
+    "@OnFreund"
+  ],
+  "zeroconf": ["_xbmc-jsonrpc-h._tcp.local."],
+  "config_flow": true
 }

@@ -24,10 +24,10 @@ class DeconzBase:
     @property
     def serial(self):
         """Return a serial number for this device."""
-        if self.unique_id is None or self.unique_id.count(":") != 7:
+        if self._device.uniqueid is None or self._device.uniqueid.count(":") != 7:
             return None
 
-        return self.unique_id.split("-", 1)[0]
+        return self._device.uniqueid.split("-", 1)[0]
 
     @property
     def device_info(self):
@@ -59,23 +59,18 @@ class DeconzDevice(DeconzBase, Entity):
 
     @property
     def entity_registry_enabled_default(self):
-        """Return if the entity should be enabled when first added to the entity registry."""
-        if not self.gateway.option_allow_clip_sensor and self._device.type.startswith(
-            "CLIP"
-        ):
-            return False
+        """Return if the entity should be enabled when first added to the entity registry.
 
-        if (
-            not self.gateway.option_allow_deconz_groups
-            and self._device.type == "LightGroup"
-        ):
+        Daylight is a virtual sensor from deCONZ that should never be enabled by default.
+        """
+        if self._device.type == "Daylight":
             return False
 
         return True
 
     async def async_added_to_hass(self):
         """Subscribe to device events."""
-        self._device.register_async_callback(self.async_update_callback)
+        self._device.register_callback(self.async_update_callback)
         self.gateway.deconz_ids[self.entity_id] = self._device.deconz_id
         self.listeners.append(
             async_dispatcher_connect(
@@ -86,14 +81,18 @@ class DeconzDevice(DeconzBase, Entity):
     async def async_will_remove_from_hass(self) -> None:
         """Disconnect device object when removed."""
         self._device.remove_callback(self.async_update_callback)
-        del self.gateway.deconz_ids[self.entity_id]
-        for unsub_dispatcher in self.listeners:
-            unsub_dispatcher()
+        if self.entity_id in self.gateway.deconz_ids:
+            del self.gateway.deconz_ids[self.entity_id]
+            for unsub_dispatcher in self.listeners:
+                unsub_dispatcher()
 
     @callback
-    def async_update_callback(self, force_update=False):
+    def async_update_callback(self, force_update=False, ignore_update=False):
         """Update the device's state."""
-        self.async_schedule_update_ha_state()
+        if ignore_update:
+            return
+
+        self.async_write_ha_state()
 
     @property
     def available(self):

@@ -1,13 +1,14 @@
 """The tests for the pushbullet notification platform."""
 import json
 import unittest
-from unittest.mock import patch
 
 from pushbullet import PushBullet
 import requests_mock
 
-from homeassistant.setup import setup_component
 import homeassistant.components.notify as notify
+from homeassistant.setup import setup_component
+
+from tests.async_mock import patch
 from tests.common import assert_setup_component, get_test_home_assistant, load_fixture
 
 
@@ -17,8 +18,9 @@ class TestPushBullet(unittest.TestCase):
     def setUp(self):
         """Initialize values for this test case class."""
         self.hass = get_test_home_assistant()
+        self.addCleanup(self.tear_down_cleanup)
 
-    def tearDown(self):  # pylint: disable=invalid-name
+    def tear_down_cleanup(self):
         """Stop everything that we started."""
         self.hass.stop()
 

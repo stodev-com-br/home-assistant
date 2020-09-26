@@ -1,7 +1,7 @@
 """Time-based One Time Password auth module."""
 import asyncio
-import logging
 from io import BytesIO
+import logging
 from typing import Any, Dict, Optional, Tuple
 
 import voluptuous as vol
@@ -10,13 +10,13 @@ from homeassistant.auth.models import User
 from homeassistant.core import HomeAssistant
 
 from . import (
-    MultiFactorAuthModule,
-    MULTI_FACTOR_AUTH_MODULES,
     MULTI_FACTOR_AUTH_MODULE_SCHEMA,
+    MULTI_FACTOR_AUTH_MODULES,
+    MultiFactorAuthModule,
     SetupFlow,
 )
 
-REQUIREMENTS = ["pyotp==2.2.7", "PyQRCode==1.2.1"]
+REQUIREMENTS = ["pyotp==2.3.0", "PyQRCode==1.2.1"]
 
 CONFIG_SCHEMA = MULTI_FACTOR_AUTH_MODULE_SCHEMA.extend({}, extra=vol.PREVENT_EXTRA)
 
@@ -35,13 +35,13 @@ _LOGGER = logging.getLogger(__name__)
 
 def _generate_qr_code(data: str) -> str:
     """Generate a base64 PNG string represent QR Code image of data."""
-    import pyqrcode
+    import pyqrcode  # pylint: disable=import-outside-toplevel
 
     qr_code = pyqrcode.create(data)
 
     with BytesIO() as buffer:
         qr_code.svg(file=buffer, scale=4)
-        return "{}".format(
+        return str(
             buffer.getvalue()
             .decode("ascii")
             .replace("\n", "")
@@ -55,7 +55,7 @@ def _generate_qr_code(data: str) -> str:
 
 def _generate_secret_and_qr_code(username: str) -> Tuple[str, str, str]:
     """Generate a secret, url, and QR code."""
-    import pyotp
+    import pyotp  # pylint: disable=import-outside-toplevel
 
     ota_secret = pyotp.random_base32()
     url = pyotp.totp.TOTP(ota_secret).provisioning_uri(
@@ -105,7 +105,7 @@ class TotpAuthModule(MultiFactorAuthModule):
 
     def _add_ota_secret(self, user_id: str, secret: Optional[str] = None) -> str:
         """Create a ota_secret for user."""
-        import pyotp
+        import pyotp  # pylint: disable=import-outside-toplevel
 
         ota_secret: str = secret or pyotp.random_base32()
 
@@ -117,7 +117,8 @@ class TotpAuthModule(MultiFactorAuthModule):
 
         Mfa module should extend SetupFlow
         """
-        user = await self.hass.auth.async_get_user(user_id)  # type: ignore
+        user = await self.hass.auth.async_get_user(user_id)
+        assert user is not None
         return TotpSetupFlow(self, self.input_schema, user)
 
     async def async_setup_user(self, user_id: str, setup_data: Any) -> str:
@@ -160,7 +161,7 @@ class TotpAuthModule(MultiFactorAuthModule):
 
     def _validate_2fa(self, user_id: str, code: str) -> bool:
         """Validate two factor authentication code."""
-        import pyotp
+        import pyotp  # pylint: disable=import-outside-toplevel
 
         ota_secret = self._users.get(user_id)  # type: ignore
         if ota_secret is None:
@@ -195,7 +196,7 @@ class TotpSetupFlow(SetupFlow):
         Return self.async_show_form(step_id='init') if user_input is None.
         Return self.async_create_entry(data={'result': result}) if finish.
         """
-        import pyotp
+        import pyotp  # pylint: disable=import-outside-toplevel
 
         errors: Dict[str, str] = {}
 
@@ -215,8 +216,13 @@ class TotpSetupFlow(SetupFlow):
 
         else:
             hass = self._auth_module.hass
-            self._ota_secret, self._url, self._image = await hass.async_add_executor_job(  # type: ignore
-                _generate_secret_and_qr_code, str(self._user.name)
+            (
+                self._ota_secret,
+                self._url,
+                self._image,
+            ) = await hass.async_add_executor_job(
+                _generate_secret_and_qr_code,  # type: ignore
+                str(self._user.name),
             )
 
         return self.async_show_form(

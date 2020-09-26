@@ -7,7 +7,7 @@ from pyHS100 import SmartDeviceException, SmartPlug
 from homeassistant.components.switch import (
     ATTR_CURRENT_POWER_W,
     ATTR_TODAY_ENERGY_KWH,
-    SwitchDevice,
+    SwitchEntity,
 )
 from homeassistant.const import ATTR_VOLTAGE
 import homeassistant.helpers.device_registry as dr
@@ -22,17 +22,6 @@ _LOGGER = logging.getLogger(__name__)
 
 ATTR_TOTAL_ENERGY_KWH = "total_energy_kwh"
 ATTR_CURRENT_A = "current_a"
-
-
-async def async_setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the platform.
-
-    Deprecated.
-    """
-    _LOGGER.warning(
-        "Loading as a platform is no longer supported, "
-        "convert to use the tplink component."
-    )
 
 
 def add_entity(device: SmartPlug, async_add_entities):
@@ -54,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
     return True
 
 
-class SmartPlugSwitch(SwitchDevice):
+class SmartPlugSwitch(SwitchEntity):
     """Representation of a TPLink Smart Plug switch."""
 
     def __init__(self, smartplug: SmartPlug):
@@ -69,11 +58,12 @@ class SmartPlugSwitch(SwitchDevice):
         self._mac = None
         self._alias = None
         self._model = None
+        self._device_id = None
 
     @property
     def unique_id(self):
         """Return a unique ID."""
-        return self._mac
+        return self._device_id
 
     @property
     def name(self):
@@ -114,16 +104,30 @@ class SmartPlugSwitch(SwitchDevice):
         """Return the state attributes of the device."""
         return self._emeter_params
 
+    @property
+    def _plug_from_context(self):
+        """Return the plug from the context."""
+        children = self.smartplug.sys_info["children"]
+        return next(c for c in children if c["id"] == self.smartplug.context)
+
     def update(self):
         """Update the TP-Link switch's state."""
         try:
             if not self._sysinfo:
                 self._sysinfo = self.smartplug.sys_info
                 self._mac = self.smartplug.mac
-                self._alias = self.smartplug.alias
                 self._model = self.smartplug.model
+                if self.smartplug.context is None:
+                    self._alias = self.smartplug.alias
+                    self._device_id = self._mac
+                else:
+                    self._alias = self._plug_from_context["alias"]
+                    self._device_id = self.smartplug.context
 
-            self._state = self.smartplug.state == self.smartplug.SWITCH_STATE_ON
+            if self.smartplug.context is None:
+                self._state = self.smartplug.state == self.smartplug.SWITCH_STATE_ON
+            else:
+                self._state = self._plug_from_context["state"] == 1
 
             if self.smartplug.has_emeter:
                 emeter_readings = self.smartplug.get_emeter_realtime()

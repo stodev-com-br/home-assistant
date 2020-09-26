@@ -29,10 +29,6 @@ class AdGuardHomeFlowHandler(ConfigFlow):
 
     _hassio_discovery = None
 
-    def __init__(self):
-        """Initialize AgGuard Home flow."""
-        pass
-
     async def _show_setup_form(self, errors=None):
         """Show the setup form to the user."""
         return self.async_show_form(
@@ -78,7 +74,6 @@ class AdGuardHomeFlowHandler(ConfigFlow):
             password=user_input.get(CONF_PASSWORD),
             tls=user_input[CONF_SSL],
             verify_ssl=user_input[CONF_VERIFY_SSL],
-            loop=self.hass.loop,
             session=session,
         )
 
@@ -100,7 +95,7 @@ class AdGuardHomeFlowHandler(ConfigFlow):
             },
         )
 
-    async def async_step_hassio(self, user_input=None):
+    async def async_step_hassio(self, discovery_info):
         """Prepare configuration for a Hass.io AdGuard Home add-on.
 
         This flow is triggered by the discovery component.
@@ -108,14 +103,14 @@ class AdGuardHomeFlowHandler(ConfigFlow):
         entries = self._async_current_entries()
 
         if not entries:
-            self._hassio_discovery = user_input
+            self._hassio_discovery = discovery_info
             return await self.async_step_hassio_confirm()
 
         cur_entry = entries[0]
 
         if (
-            cur_entry.data[CONF_HOST] == user_input[CONF_HOST]
-            and cur_entry.data[CONF_PORT] == user_input[CONF_PORT]
+            cur_entry.data[CONF_HOST] == discovery_info[CONF_HOST]
+            and cur_entry.data[CONF_PORT] == discovery_info[CONF_PORT]
         ):
             return self.async_abort(reason="single_instance_allowed")
 
@@ -128,8 +123,8 @@ class AdGuardHomeFlowHandler(ConfigFlow):
             cur_entry,
             data={
                 **cur_entry.data,
-                CONF_HOST: user_input[CONF_HOST],
-                CONF_PORT: user_input[CONF_PORT],
+                CONF_HOST: discovery_info[CONF_HOST],
+                CONF_PORT: discovery_info[CONF_PORT],
             },
         )
 
@@ -151,7 +146,6 @@ class AdGuardHomeFlowHandler(ConfigFlow):
             self._hassio_discovery[CONF_HOST],
             port=self._hassio_discovery[CONF_PORT],
             tls=False,
-            loop=self.hass.loop,
             session=session,
         )
 

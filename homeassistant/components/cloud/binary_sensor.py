@@ -1,11 +1,10 @@
 """Support for Home Assistant Cloud binary sensors."""
 import asyncio
 
-from homeassistant.components.binary_sensor import BinarySensorDevice
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DISPATCHER_REMOTE_UPDATE, DOMAIN
-
 
 WAIT_UNTIL_CHANGE = 3
 
@@ -19,7 +18,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities([CloudRemoteBinary(cloud)])
 
 
-class CloudRemoteBinary(BinarySensorDevice):
+class CloudRemoteBinary(BinarySensorEntity):
     """Representation of an Cloud Remote UI Connection binary sensor."""
 
     def __init__(self, cloud):
@@ -63,7 +62,7 @@ class CloudRemoteBinary(BinarySensorDevice):
         async def async_state_update(data):
             """Update callback."""
             await asyncio.sleep(WAIT_UNTIL_CHANGE)
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
         self._unsub_dispatcher = async_dispatcher_connect(
             self.hass, DISPATCHER_REMOTE_UPDATE, async_state_update

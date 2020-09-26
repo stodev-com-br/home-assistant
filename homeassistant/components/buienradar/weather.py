@@ -1,30 +1,40 @@
 """Support for Buienradar.nl weather service."""
 import logging
 
+from buienradar.constants import (
+    CONDCODE,
+    CONDITION,
+    DATETIME,
+    MAX_TEMP,
+    MIN_TEMP,
+    RAIN,
+    WINDAZIMUTH,
+    WINDSPEED,
+)
 import voluptuous as vol
 
 from homeassistant.components.weather import (
     ATTR_FORECAST_CONDITION,
+    ATTR_FORECAST_PRECIPITATION,
     ATTR_FORECAST_TEMP,
     ATTR_FORECAST_TEMP_LOW,
     ATTR_FORECAST_TIME,
-    PLATFORM_SCHEMA,
-    WeatherEntity,
-    ATTR_FORECAST_PRECIPITATION,
     ATTR_FORECAST_WIND_BEARING,
     ATTR_FORECAST_WIND_SPEED,
+    PLATFORM_SCHEMA,
+    WeatherEntity,
 )
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME, TEMP_CELSIUS
 from homeassistant.helpers import config_validation as cv
 
 # Reuse data and API logic from the sensor implementation
-from .sensor import BrData
+from .const import DEFAULT_TIMEFRAME
+from .util import BrData
 
 _LOGGER = logging.getLogger(__name__)
 
 DATA_CONDITION = "buienradar_condition"
 
-DEFAULT_TIMEFRAME = 60
 
 CONF_FORECAST = "forecast"
 
@@ -80,7 +90,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             for condi in condlst:
                 hass.data[DATA_CONDITION][condi] = cond
 
-    async_add_entities([BrWeather(data, config)])
+    async_add_entities([BrWeather(data, config, coordinates)])
 
     # schedule the first update in 1 minute from now:
     await data.schedule_update(1)
@@ -89,11 +99,15 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 class BrWeather(WeatherEntity):
     """Representation of a weather condition."""
 
-    def __init__(self, data, config):
+    def __init__(self, data, config, coordinates):
         """Initialise the platform with a data instance and station name."""
-        self._stationname = config.get(CONF_NAME, None)
-        self._forecast = config.get(CONF_FORECAST)
+        self._stationname = config.get(CONF_NAME)
+        self._forecast = config[CONF_FORECAST]
         self._data = data
+
+        self._unique_id = "{:2.6f}{:2.6f}".format(
+            coordinates[CONF_LATITUDE], coordinates[CONF_LONGITUDE]
+        )
 
     @property
     def attribution(self):
@@ -103,15 +117,13 @@ class BrWeather(WeatherEntity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return self._stationname or "BR {}".format(
-            self._data.stationname or "(unknown station)"
+        return (
+            self._stationname or f"BR {self._data.stationname or '(unknown station)'}"
         )
 
     @property
     def condition(self):
         """Return the current condition."""
-        from buienradar.constants import CONDCODE
-
         if self._data and self._data.condition:
             ccode = self._data.condition.get(CONDCODE)
             if ccode:
@@ -161,17 +173,6 @@ class BrWeather(WeatherEntity):
     @property
     def forecast(self):
         """Return the forecast array."""
-        from buienradar.constants import (
-            CONDITION,
-            CONDCODE,
-            RAIN,
-            DATETIME,
-            MIN_TEMP,
-            MAX_TEMP,
-            WINDAZIMUTH,
-            WINDSPEED,
-        )
-
         if not self._forecast:
             return None
 
@@ -198,3 +199,8 @@ class BrWeather(WeatherEntity):
             fcdata_out.append(data_out)
 
         return fcdata_out
+
+    @property
+    def unique_id(self):
+        """Return the unique id."""
+        return self._unique_id

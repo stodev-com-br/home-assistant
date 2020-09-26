@@ -1,12 +1,7 @@
 {
   "domain": "growatt_server",
-  "name": "Growatt Server",
-  "documentation": "https://www.home-assistant.io/components/growatt_server/",
-  "requirements": [
-    "growattServer==0.0.1"
-  ],
-  "dependencies": [],
-  "codeowners": [
-    "@indykoning"
-  ]
+  "name": "Growatt",
+  "documentation": "https://www.home-assistant.io/integrations/growatt_server/",
+  "requirements": ["growattServer==0.1.1"],
+  "codeowners": ["@indykoning"]
 }
